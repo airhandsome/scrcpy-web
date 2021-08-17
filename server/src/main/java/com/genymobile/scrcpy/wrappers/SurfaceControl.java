@@ -121,14 +121,12 @@ public final class SurfaceControl {
         return setDisplayPowerModeMethod;
     }
 
-    public static boolean setDisplayPowerMode(IBinder displayToken, int mode) {
+    public static void setDisplayPowerMode(IBinder displayToken, int mode) {
         try {
             Method method = getSetDisplayPowerModeMethod();
             method.invoke(null, displayToken, mode);
-            return true;
         } catch (InvocationTargetException | IllegalAccessException | NoSuchMethodException e) {
             Ln.e("Could not invoke method", e);
-            return false;
         }
     }
 

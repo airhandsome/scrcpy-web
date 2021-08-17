@@ -12,35 +12,17 @@ public final class Ln {
     private static final String PREFIX = "[server] ";
 
     enum Level {
-        VERBOSE, DEBUG, INFO, WARN, ERROR
+        DEBUG, INFO, WARN, ERROR
     }
 
-    private static Level threshold = Level.INFO;
+    private static final Level THRESHOLD = BuildConfig.DEBUG ? Level.DEBUG : Level.INFO;
 
     private Ln() {
         // not instantiable
     }
 
-    /**
-     * Initialize the log level.
-     * <p>
-     * Must be called before starting any new thread.
-     *
-     * @param level the log level
-     */
-    public static void initLogLevel(Level level) {
-        threshold = level;
-    }
-
     public static boolean isEnabled(Level level) {
-        return level.ordinal() >= threshold.ordinal();
-    }
-
-    public static void v(String message) {
-        if (isEnabled(Level.VERBOSE)) {
-            Log.v(TAG, message);
-            System.out.println(PREFIX + "VERBOSE: " + message);
-        }
+        return level.ordinal() >= THRESHOLD.ordinal();
     }
 
     public static void d(String message) {

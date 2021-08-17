@@ -3,29 +3,20 @@ package com.genymobile.scrcpy;
 import android.graphics.Rect;
 
 public class Options {
-    private Ln.Level logLevel;
     private int maxSize;
     private int bitRate;
     private int maxFps;
-    private int lockedVideoOrientation;
     private boolean tunnelForward;
     private Rect crop;
     private boolean sendFrameMeta; // send PTS so that the client may record properly
     private boolean control;
-    private int displayId;
-    private boolean showTouches;
-    private boolean stayAwake;
-    private String codecOptions;
-    private String encoderName;
-    private boolean powerOffScreenOnClose;
 
-    public Ln.Level getLogLevel() {
-        return logLevel;
-    }
-
-    public void setLogLevel(Ln.Level logLevel) {
-        this.logLevel = logLevel;
-    }
+    //wen add
+    private int quality;
+    private int scale;
+    private boolean controlOnly;
+    private boolean nalu;
+    private boolean dumpHierarchy;
 
     public int getMaxSize() {
         return maxSize;
@@ -49,14 +40,6 @@ public class Options {
 
     public void setMaxFps(int maxFps) {
         this.maxFps = maxFps;
-    }
-
-    public int getLockedVideoOrientation() {
-        return lockedVideoOrientation;
-    }
-
-    public void setLockedVideoOrientation(int lockedVideoOrientation) {
-        this.lockedVideoOrientation = lockedVideoOrientation;
     }
 
     public boolean isTunnelForward() {
@@ -91,51 +74,43 @@ public class Options {
         this.control = control;
     }
 
-    public int getDisplayId() {
-        return displayId;
+    public int getQuality() {
+        return quality;
     }
 
-    public void setDisplayId(int displayId) {
-        this.displayId = displayId;
+    public void setQuality(int quality) {
+        this.quality = quality;
     }
 
-    public boolean getShowTouches() {
-        return showTouches;
+    public int getScale() {
+        return scale;
     }
 
-    public void setShowTouches(boolean showTouches) {
-        this.showTouches = showTouches;
+    public void setScale(int scale) {
+        this.scale = scale;
     }
 
-    public boolean getStayAwake() {
-        return stayAwake;
+    public boolean getControlOnly() {
+        return controlOnly;
     }
 
-    public void setStayAwake(boolean stayAwake) {
-        this.stayAwake = stayAwake;
+    public void setControlOnly(boolean controlOnly) {
+        this.controlOnly = controlOnly;
     }
 
-    public String getCodecOptions() {
-        return codecOptions;
+    public boolean getNALU() {
+        return nalu;
     }
 
-    public void setCodecOptions(String codecOptions) {
-        this.codecOptions = codecOptions;
+    public void setNALU(boolean nalu) {
+        this.nalu = nalu;
     }
 
-    public String getEncoderName() {
-        return encoderName;
+    public boolean getDumpHierarchy() {
+        return dumpHierarchy;
     }
 
-    public void setEncoderName(String encoderName) {
-        this.encoderName = encoderName;
-    }
-
-    public void setPowerOffScreenOnClose(boolean powerOffScreenOnClose) {
-        this.powerOffScreenOnClose = powerOffScreenOnClose;
-    }
-
-    public boolean getPowerOffScreenOnClose() {
-        return this.powerOffScreenOnClose;
+    public void setDumpHierarchy(boolean dumpHierarchy) {
+        this.dumpHierarchy = dumpHierarchy;
     }
 }
