@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # Wrapper script to invoke gradle from meson
 set -e
 
