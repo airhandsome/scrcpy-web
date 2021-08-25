@@ -9,15 +9,18 @@ JNIEXPORT jbyteArray JNICALL Java_com_genymobile_scrcpy_JpegEncoder_compress(JNI
     unsigned long jpegSize = 0;
     int subsampling = TJSAMP_420;
     jbyte* imgBuffer = NULL, *jpegBuffer = NULL;
+    LOGD("scrcpy compress1");
     if(NULL == (imgBuffer=(*env)->GetDirectBufferAddress(env, buffer))){
         LOGI("imgBuffer is null");
         return NULL;
     }
+    LOGD("scrcpy compress2");
     unsigned long maxSize = tjBufSize(pitch, height, subsampling);
     if(NULL == (jpegBuffer = tjAlloc(maxSize))){
         LOGI("jpegBuffer is null");
         return NULL;
     }
+    LOGD("scrcpy compress3");
     tjhandle handle = tjInitCompress();
     if(NULL == handle){
         LOGI("tjInitCompress error: %s", tjGetErrorStr2(handle));
@@ -25,6 +28,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_genymobile_scrcpy_JpegEncoder_compress(JNI
         handle = NULL;
         return NULL;
     }
+    LOGD("scrcpy compress4");
     if (0 == tjCompress2(
         handle,
         (unsigned char*)imgBuffer,
@@ -59,6 +63,7 @@ JNIEXPORT jbyteArray JNICALL Java_com_genymobile_scrcpy_JpegEncoder_compress(JNI
         jpegBuffer = NULL;
         return NULL;
     }
+    LOGD("scrcpy compress5");
     tjDestroy(handle);
     handle = NULL;
     tjFree(jpegBuffer);

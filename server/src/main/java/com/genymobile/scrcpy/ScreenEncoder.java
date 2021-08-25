@@ -124,7 +124,7 @@ public class ScreenEncoder implements Device.RotationListener {
 
     private class ImageAvailableListenerImpl implements ImageReader.OnImageAvailableListener {
         Handler handler;
-        SocketChannel fd;
+        FileDescriptor fd;
         Device device;
         int type = 0;// 0:libjpeg-turbo 1:bitmap
         int quality;
@@ -134,7 +134,7 @@ public class ScreenEncoder implements Device.RotationListener {
         long lastTime = System.currentTimeMillis();
         long timeA = lastTime;
 
-        public ImageAvailableListenerImpl(Handler handler, Device device, SocketChannel fd, int frameRate, int quality) {
+        public ImageAvailableListenerImpl(Handler handler, Device device, FileDescriptor fd, int frameRate, int quality) {
             this.handler = handler;
             this.fd = fd;
             this.device = device;
@@ -222,7 +222,7 @@ public class ScreenEncoder implements Device.RotationListener {
         return mHandler;
     }
 
-    public void streamScreen(Device device, SocketChannel fd) throws IOException {
+    public void streamScreen(Device device, FileDescriptor fd) throws IOException {
         Workarounds.prepareMainLooper();
         Workarounds.fillAppInfo();
 
@@ -305,7 +305,7 @@ public class ScreenEncoder implements Device.RotationListener {
         return new Rect(0, 0, desiredWidth, desiredHeight);
     }
 
-    private void writeRotation(SocketChannel fd) {
+    private void writeRotation(FileDescriptor fd) {
         ByteBuffer r = ByteBuffer.allocate(8);
         r.order(ByteOrder.LITTLE_ENDIAN);
         r.putInt(4);
@@ -318,7 +318,7 @@ public class ScreenEncoder implements Device.RotationListener {
         }
     }
 
-    private void writeMinicapBanner(Device device, SocketChannel fd, int scale) throws IOException {
+    private void writeMinicapBanner(Device device, FileDescriptor fd, int scale) throws IOException {
         final byte BANNER_SIZE = 24;
         final byte version = 1;
         final byte quirks = 2;
@@ -343,6 +343,7 @@ public class ScreenEncoder implements Device.RotationListener {
         b.put((byte) orientation);//orientation
         b.put((byte) quirks);//quirks
         byte[] array = b.array();
+        Ln.e(fd.toString());
         IO.writeFully(fd, array, 0, array.length);// IOException
         Ln.i("banner\n"
                 + "{\n"

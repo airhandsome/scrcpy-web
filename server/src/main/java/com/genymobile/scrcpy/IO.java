@@ -1,5 +1,9 @@
 package com.genymobile.scrcpy;
 
+import android.annotation.TargetApi;
+import android.os.Build;
+import android.system.Os;
+
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -10,14 +14,15 @@ public final class IO {
         // not instantiable
     }
 
-    public synchronized static void writeFully(SocketChannel channel, ByteBuffer from) throws IOException {
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    public synchronized static void writeFully(FileDescriptor channel, ByteBuffer from) throws IOException {
         // ByteBuffer position is not updated as expected by Os.write() on old Android versions, so
         // count the remaining bytes manually.
         // See <https://github.com/Genymobile/scrcpy/issues/291>.
         int remaining = from.remaining();
         while (remaining > 0) {
             try {
-                int w = channel.write(from);
+                int w = Os.write(channel, from);
                 if (BuildConfig.DEBUG && w < 0) {
                     // w should not be negative, since an exception is thrown on error
                     throw new AssertionError("write() returned a negative value (" + w + ")");
@@ -29,7 +34,7 @@ public final class IO {
         }
     }
 
-    public synchronized static void writeFully(SocketChannel channel, byte[] buffer, int offset, int len) throws IOException {
+    public synchronized static void writeFully(FileDescriptor channel, byte[] buffer, int offset, int len) throws IOException {
         writeFully(channel, ByteBuffer.wrap(buffer, offset, len));
     }
 

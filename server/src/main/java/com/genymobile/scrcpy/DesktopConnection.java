@@ -9,42 +9,33 @@ import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.charset.StandardCharsets;
-
-import java.net.Socket;
-import java.net.ServerSocket;
-import java.net.InetSocketAddress;
 import java.nio.channels.SocketChannel;
-import java.nio.channels.ServerSocketChannel;
 
 public final class DesktopConnection implements Closeable {
 
     private static final int DEVICE_NAME_FIELD_LENGTH = 64;
 
     private static final String SOCKET_NAME = "scrcpy";
+    private static final String CONTROL_NAME = "scrcpy-control";
     private static final int SOCKET_PORT = 6612;
     private static final int CONTROL_SOCKET_PORT = 6613;
 
-    private final Socket videoSocket;
+    private final LocalSocket videoSocket;
     private final FileDescriptor videoFd;
-    private final SocketChannel videoChannel;
 
-    private final Socket controlSocket;
+    private final LocalSocket controlSocket;
     private final InputStream controlInputStream;
     private final OutputStream controlOutputStream;
 
     private final ControlMessageReader reader = new ControlMessageReader();
     private final DeviceMessageWriter writer = new DeviceMessageWriter();
 
-    private DesktopConnection(SocketChannel videoSocket, SocketChannel controlSocket) throws IOException {
-        this.videoSocket = videoSocket.socket();
-        this.controlSocket = controlSocket.socket();
-        controlInputStream = controlSocket.socket().getInputStream();
-        controlOutputStream = controlSocket.socket().getOutputStream();
-//        videoFd = videoSocket.getFileDescriptor();
-        videoFd = null;//no use
-        videoChannel = videoSocket.socket().getChannel();
-        Ln.i("videoChannel: " + videoChannel);
+    private DesktopConnection(LocalSocket videoSocket, LocalSocket controlSocket) throws IOException {
+        this.videoSocket = videoSocket;
+        this.controlSocket = controlSocket;
+        controlInputStream = controlSocket.getInputStream();
+        controlOutputStream = controlSocket.getOutputStream();
+        videoFd = videoSocket.getFileDescriptor();
     }
 
     private static LocalSocket connect(String abstractName) throws IOException {
@@ -54,15 +45,16 @@ public final class DesktopConnection implements Closeable {
     }
 
     public static DesktopConnection open(Device device, boolean tunnelForward) throws IOException {
-        SocketChannel videoSocket = null;
-        SocketChannel controlSocket = null;
+        LocalSocket videoSocket = null;
+        LocalSocket controlSocket = null;
         if (tunnelForward) {
-            ServerSocketChannel localServerSocket = ServerSocketChannel.open();
-            ServerSocketChannel controlServerSocket = ServerSocketChannel.open();
-            localServerSocket.socket().bind(new InetSocketAddress(SOCKET_PORT));
-            controlServerSocket.socket().bind(new InetSocketAddress(CONTROL_SOCKET_PORT));
+//            ServerSocketChannel localServerSocket = ServerSocketChannel.open();
+//            ServerSocketChannel controlServerSocket = ServerSocketChannel.open();
+//            localServerSocket.socket().bind(new InetSocketAddress(SOCKET_PORT));
+//            controlServerSocket.socket().bind(new InetSocketAddress(CONTROL_SOCKET_PORT));
 
-
+            LocalServerSocket localServerSocket = new LocalServerSocket(SOCKET_NAME);
+            LocalServerSocket controlServerSocket = new LocalServerSocket(CONTROL_NAME);
             try {
                 videoSocket = localServerSocket.accept();
                 // send one byte so the client may read() to detect a connection error
@@ -119,10 +111,6 @@ public final class DesktopConnection implements Closeable {
 
     public FileDescriptor getVideoFd() {
         return videoFd;
-    }
-
-    public SocketChannel getVideoChannel() {
-        return videoChannel;
     }
 
     public ControlMessage receiveControlMessage() throws IOException {

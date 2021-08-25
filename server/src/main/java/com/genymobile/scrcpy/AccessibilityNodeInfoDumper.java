@@ -104,7 +104,7 @@ public class AccessibilityNodeInfoDumper {
                     b.put(bos.toByteArray());
                     byte[] hierarchy = b.array();
                     try {
-                        IO.writeFully(connection.getVideoChannel(), hierarchy, 0, hierarchy.length);// IOException
+                        IO.writeFully(connection.getVideoFd(), hierarchy, 0, hierarchy.length);// IOException
                     } catch (IOException e) {
                         Common.stopScrcpy(handler, "hierarchy");
                     }

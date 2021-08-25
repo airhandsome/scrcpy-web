@@ -45,7 +45,7 @@ public final class Server {
 
             try {
                 // synchronous
-                screenEncoder.streamScreen(device, connection.getVideoChannel());
+                screenEncoder.streamScreen(device, connection.getVideoFd());
             } catch (IOException e) {
                 Ln.i("exit: " + e.getMessage());
                 //do exit(0)
