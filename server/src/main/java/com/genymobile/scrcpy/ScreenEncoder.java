@@ -176,7 +176,13 @@ public class ScreenEncoder implements Device.RotationListener {
                     int pitch = width + rowPadding / pixelStride;
 //                    Ln.i("pitch: " + pitch + ", pixelStride: " + pixelStride + ", rowStride: " + rowStride + ", rowPadding: " + rowPadding);
                     if (type == 0) {
-                        jpegData = JpegEncoder.compress(buffer, width, pitch, height, quality);
+                        try{
+                            jpegData = JpegEncoder.compress(buffer, width, pitch, height, quality);
+                        }catch (UnsatisfiedLinkError e){
+                            Log.i("scrcpy jpegData error", "convert to bitmap mode");
+                            type = 1;
+                        }
+
                     } else if (type == 1) {
                         ByteArrayOutputStream stream = new ByteArrayOutputStream();
                         Bitmap bitmap = Bitmap.createBitmap(pitch, height, Bitmap.Config.ARGB_8888);
