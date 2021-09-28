@@ -3,7 +3,6 @@ package com.genymobile.scrcpy;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 
 import android.graphics.Rect;
-import android.os.Build;
 import android.os.IBinder;
 import android.view.Surface;
 
@@ -13,32 +12,21 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import android.graphics.ImageFormat;
-import android.graphics.YuvImage;
 import android.media.Image;
 import android.util.Log;
 
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.io.OutputStream;
 import java.io.ByteArrayOutputStream;
 
 import android.media.ImageReader;
 import android.graphics.Bitmap;
-import android.os.Environment;
 import android.graphics.PixelFormat;
 import android.os.Handler;
 import android.os.Message;
 
-import java.util.Arrays;
 import java.nio.ByteOrder;
 
 import android.os.Process;
 import android.os.HandlerThread;
-
-import java.nio.channels.SocketChannel;
 
 public class ScreenEncoder implements Device.RotationListener {
 
@@ -106,6 +94,13 @@ public class ScreenEncoder implements Device.RotationListener {
                 }
             }
         };
+    }
+
+    public void ModifySettings(int scale, int maxFPS, int quality){
+        this.quality = quality;
+        this.maxFps = maxFPS;
+        this.scale = scale;
+        this.imageAvailableListenerImpl = null;
     }
 
     @Override
@@ -183,7 +178,8 @@ public class ScreenEncoder implements Device.RotationListener {
                             type = 1;
                         }
 
-                    } else if (type == 1) {
+                    }
+                    if (type == 1) {
                         ByteArrayOutputStream stream = new ByteArrayOutputStream();
                         Bitmap bitmap = Bitmap.createBitmap(pitch, height, Bitmap.Config.ARGB_8888);
                         bitmap.copyPixelsFromBuffer(buffer);

@@ -30,6 +30,7 @@ android {
         main {
             java.srcDirs 'src/java'
             jniLibs.srcDirs 'libs/libturbojpeg/prebuilt'
+            jniLibs.srcDirs = ['libs']
         }
     }
 }
