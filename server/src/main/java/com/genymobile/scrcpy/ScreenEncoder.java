@@ -3,6 +3,7 @@ package com.genymobile.scrcpy;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 
 import android.graphics.Rect;
+import android.os.Build;
 import android.os.IBinder;
 import android.view.Surface;
 
@@ -362,7 +363,8 @@ public class ScreenEncoder implements Device.RotationListener {
     }
 
     private static IBinder createDisplay() {
-        return SurfaceControl.createDisplay("scrcpy", true);
+        boolean secure = Build.VERSION.SDK_INT <= 30;
+        return SurfaceControl.createDisplay("scrcpy", secure);
     }
 
     private static void setDisplaySurface(IBinder display, Surface surface, Rect deviceRect, Rect displayRect) {
