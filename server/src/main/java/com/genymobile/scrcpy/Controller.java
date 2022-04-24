@@ -3,6 +3,7 @@ package com.genymobile.scrcpy;
 import com.genymobile.scrcpy.wrappers.InputManager;
 
 import android.os.SystemClock;
+import android.util.Log;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
@@ -108,6 +109,10 @@ public class Controller {
                 break;
             case ControlMessage.TYPE_ROTATE_DEVICE:
                 device.rotateDevice();
+                break;
+            case ControlMessage.TYPE_RESET_VIDEO_STREAM:
+                Log.i("Controller", "reconnect");
+                ScreenEncoder.reconnect = true;
                 break;
             default:
                 // do nothing

@@ -28,4 +28,5 @@ public final class ScreenInfo {
         }
         return new ScreenInfo(Device.flipRect(contentRect), videoSize.rotate(), newRotated);
     }
+
 }

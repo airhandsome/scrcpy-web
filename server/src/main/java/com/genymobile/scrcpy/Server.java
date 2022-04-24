@@ -181,7 +181,7 @@ public final class Server {
         o.setScale(480);
         // jpeg
         o.setQuality(60);
-        o.setBitRate(1000000);
+        o.setBitRate(8000000);
         o.setSendFrameMeta(true);
         // control
         o.setControlOnly(false);
@@ -281,6 +281,7 @@ public final class Server {
         Ln.i("Options quality: " + options.getQuality() + " (1 ~ 100)");
         Ln.i("Options projection: " + options.getScale() + " (1080, 720, 480, 360...)");
         Ln.i("Options control only: " + options.getControlOnly() + " (true / false)");
+        Ln.i("Options bitrate: " + options.getBitRate());
         scrcpy(options);
     }
 }

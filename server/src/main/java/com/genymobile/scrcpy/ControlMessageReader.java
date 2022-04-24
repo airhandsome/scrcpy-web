@@ -1,5 +1,7 @@
 package com.genymobile.scrcpy;
 
+import android.util.Log;
+
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
@@ -82,6 +84,9 @@ public class ControlMessageReader {
             case ControlMessage.TYPE_COLLAPSE_NOTIFICATION_PANEL:
             case ControlMessage.TYPE_GET_CLIPBOARD:
             case ControlMessage.TYPE_ROTATE_DEVICE:
+                msg = ControlMessage.createEmpty(type);
+                break;
+            case ControlMessage.TYPE_RESET_VIDEO_STREAM:
                 msg = ControlMessage.createEmpty(type);
                 break;
             default:
