@@ -138,8 +138,8 @@ public final class Server {
         org.apache.commons.cli.CommandLine commandLine = null;
         org.apache.commons.cli.CommandLineParser parser = new org.apache.commons.cli.BasicParser();
         org.apache.commons.cli.Options options = new org.apache.commons.cli.Options();
-        options.addOption("Q", true, "JPEG quality (0-100)");
-        options.addOption("r", true, "Frame rate (frames/s)");
+        options.addOption("r", true, "maxFps (0-100)");
+        options.addOption("b", true, "bitrate (200K-10M)");
         options.addOption("P", true, "Display projection (1080, 720, 480...).");
         options.addOption("c", false, "Control only");
         options.addOption("L", false, "Library path");
@@ -155,10 +155,10 @@ public final class Server {
         if (commandLine.hasOption('h')) {
             System.out.println(
                     "Usage: [-h]\n\n"
-                            + "jpeg:\n"
-                            + "  -r <value>:    Frame rate (frames/sec).\n"
+                            + "h264:\n"
+                            + "  -r <value>:    maxFps (15-60).\n"
                             + "  -P <value>:    Display projection (1080, 720, 480, 360...).\n"
-                            + "  -Q <value>:    JPEG quality (0-100).\n"
+                            + "  -b <value>:    bitrate (200K-10M)\n"
                             + "\n"
                             + "  -c:            Control only.\n"
                             + "  -L:            Library path.\n"
@@ -179,22 +179,20 @@ public final class Server {
         // global
         o.setMaxFps(24);
         o.setScale(480);
-        // jpeg
-        o.setQuality(60);
-        o.setBitRate(8000000);
+        o.setBitRate(1000000);
         o.setSendFrameMeta(true);
         // control
         o.setControlOnly(false);
         // dump
         o.setDumpHierarchy(false);
-        if (commandLine.hasOption('Q')) {
+        if (commandLine.hasOption('b')) {
             int i = 0;
             try {
-                i = Integer.parseInt(commandLine.getOptionValue('Q'));
+                i = Integer.parseInt(commandLine.getOptionValue('b'));
             } catch (Exception e) {
             }
-            if (i > 0 && i <= 100) {
-                o.setQuality(i);
+            if (i > 200 && i <= 10000) {
+                o.setBitRate(i * 1000);
             }
         }
         if (commandLine.hasOption('r')) {
@@ -277,11 +275,10 @@ public final class Server {
 //        unlinkSelf();
 //        Options options = createOptions(args);
         final Options options = customOptions(args);
-        Ln.i("Options frame rate: " + options.getMaxFps() + " (1 ~ 60)");
-        Ln.i("Options quality: " + options.getQuality() + " (1 ~ 100)");
+        Ln.i("Options frame rate: " + options.getMaxFps() + " (1 ~ 10)");
+        Ln.i("Options bitrate: " + options.getBitRate() + " (200K-10M)");
         Ln.i("Options projection: " + options.getScale() + " (1080, 720, 480, 360...)");
         Ln.i("Options control only: " + options.getControlOnly() + " (true / false)");
-        Ln.i("Options bitrate: " + options.getBitRate());
         scrcpy(options);
     }
 }
