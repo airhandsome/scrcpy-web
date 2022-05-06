@@ -138,6 +138,7 @@ public final class Server {
         org.apache.commons.cli.CommandLine commandLine = null;
         org.apache.commons.cli.CommandLineParser parser = new org.apache.commons.cli.BasicParser();
         org.apache.commons.cli.Options options = new org.apache.commons.cli.Options();
+        options.addOption("Q", true, "JPEG quality (0-100)");
         options.addOption("r", true, "maxFps (0-100)");
         options.addOption("b", true, "bitrate (200K-10M)");
         options.addOption("P", true, "Display projection (1080, 720, 480...).");
@@ -145,6 +146,7 @@ public final class Server {
         options.addOption("L", false, "Library path");
         options.addOption("D", false, "Dump window hierarchy");
         options.addOption("h", false, "Show help");
+        options.addOption("m", true, "choose the stream mode for video or image");
         try {
             commandLine = parser.parse(options, args);
         } catch (Exception e) {
@@ -160,10 +162,13 @@ public final class Server {
                             + "  -P <value>:    Display projection (1080, 720, 480, 360...).\n"
                             + "  -b <value>:    bitrate (200K-10M)\n"
                             + "\n"
+                            + "JPEG \n"
+                            + "  -Q <value>:    JPEG quality (0-100).\n"
                             + "  -c:            Control only.\n"
                             + "  -L:            Library path.\n"
                             + "  -D:            Dump window hierarchy.\n"
                             + "  -h:            Show help.\n"
+                            + "  -m:            Choose stream mode"
             );
             System.exit(0);
         }
@@ -181,6 +186,7 @@ public final class Server {
         o.setScale(480);
         o.setBitRate(1000000);
         o.setSendFrameMeta(true);
+        o.setQuality(60);
         // control
         o.setControlOnly(false);
         // dump
@@ -193,6 +199,16 @@ public final class Server {
             }
             if (i > 200 && i <= 10000) {
                 o.setBitRate(i * 1000);
+            }
+        }
+        if (commandLine.hasOption('Q')) {
+            int i = 0;
+            try {
+                i = Integer.parseInt(commandLine.getOptionValue('Q'));
+            } catch (Exception e) {
+            }
+            if (i > 0 && i <= 100) {
+                o.setQuality(i);
             }
         }
         if (commandLine.hasOption('r')) {
@@ -220,6 +236,18 @@ public final class Server {
         }
         if (commandLine.hasOption('D')) {
             o.setDumpHierarchy(true);
+        }
+        if (commandLine.hasOption('m')){
+            try{
+                String mode = commandLine.getOptionValue('m');
+                Ln.e("mode:" + mode);
+
+                if (mode.equals("image")){
+                    ScreenEncoder.videoMode = false;
+                }
+                Ln.e("videoMode:" + ScreenEncoder.videoMode);
+            }catch (Exception e){
+            }
         }
         return o;
     }

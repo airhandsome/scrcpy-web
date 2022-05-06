@@ -42,6 +42,7 @@ import android.os.HandlerThread;
 
 public class ScreenEncoder implements Device.RotationListener {
     public static boolean reconnect = false;
+    public static boolean videoMode = true;
     private static final int DEFAULT_I_FRAME_INTERVAL = 10; // seconds
     private static final int REPEAT_FRAME_DELAY_US = 100_000; // repeat after 100ms
     private static final int[] MAX_SIZE_FALLBACK = {2560, 1920, 1600, 1280, 1024, 800};
@@ -259,7 +260,6 @@ public class ScreenEncoder implements Device.RotationListener {
                         }
                     }
                 } else {
-                    MediaCodec codec = createCodec(null);
                     IBinder display = createDisplay();
                     ScreenInfo screenInfo = device.getScreenInfo();
                     Rect contentRect = device.getScreenInfo().getContentRect();
@@ -267,17 +267,46 @@ public class ScreenEncoder implements Device.RotationListener {
                     Rect videoRect = getDesiredSize(contentRect, scale);
                     Rect unlockedVideoRect = screenInfo.getVideoSize().toRect();
                     setSize(format, videoRect.width(), videoRect.height());
-
                     Surface surface = null;
+                    MediaCodec codec = createCodec(null);
                     try{
-                        configure(codec, format);
-                        surface = codec.createInputSurface();
-                        setDisplaySurface(display, surface, contentRect, videoRect);
-                        codec.start();
+                        if (videoMode){
+                            configure(codec, format);
+                            surface = codec.createInputSurface();
+                            setDisplaySurface(display, surface, contentRect, videoRect);
+                            codec.start();
+                            alive = encode(codec, fd);
+                            // do not call stop() on exception, it would trigger an IllegalStateException
+                            codec.stop();
+                        }else{
+                            synchronized (imageReaderLock) {
+                                mImageReader = ImageReader.newInstance(videoRect.width(), videoRect.height(), PixelFormat.RGBA_8888, 2);
+                                bImageReaderDisable = false;
+                            }
+                            if (imageAvailableListenerImpl == null) {
+                                imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, maxFps, quality);
+                            }
+                            mImageReader.setOnImageAvailableListener(imageAvailableListenerImpl, mHandler);
+                            surface = mImageReader.getSurface();
+                            setDisplaySurface(display, surface, contentRect, videoRect);
+                            synchronized (rotationLock) {
+                                try {
+                                    rotationLock.wait();
+                                } catch (InterruptedException e) {
+                                    Ln.e("Rotate error " + e);
+                                }
+                            }
+                            synchronized (imageReaderLock) {
+                                if (mImageReader != null) {
+                                    bImageReaderDisable = true;
+                                    mImageReader.close();
+                                }
+                            }
+                            destroyDisplay(display);
+                            surface.release();
+                            alive = getAlive();
+                        }
 
-                        alive = encode(codec, fd);
-                        // do not call stop() on exception, it would trigger an IllegalStateException
-                        codec.stop();
                     }catch (IllegalStateException | IllegalArgumentException e) {
                         Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
 
@@ -295,13 +324,14 @@ public class ScreenEncoder implements Device.RotationListener {
                     }finally {
                         destroyDisplay(display);
                         codec.release();
+                        if (mHandlerThread != null) {
+                            mHandlerThread.quit();
+                        }
                         if (surface != null)
                             surface.release();
                     }
 
                 }
-//                alive = getAlive();
-//                Ln.i("alive: " + alive);
             } while (alive);
         } catch (Exception e) {
             e.printStackTrace();

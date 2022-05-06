@@ -84,9 +84,10 @@ public class ControlMessageReader {
             case ControlMessage.TYPE_COLLAPSE_NOTIFICATION_PANEL:
             case ControlMessage.TYPE_GET_CLIPBOARD:
             case ControlMessage.TYPE_ROTATE_DEVICE:
-                msg = ControlMessage.createEmpty(type);
-                break;
             case ControlMessage.TYPE_RESET_VIDEO_STREAM:
+            case ControlMessage.TYPE_RESET_IMAGE_STREAM:
+            case ControlMessage.SCREEN_ORIENTATION_LANDSCAPE:
+            case ControlMessage.SCREEN_ORIENTATION_PORTRAIT:
                 msg = ControlMessage.createEmpty(type);
                 break;
             default:

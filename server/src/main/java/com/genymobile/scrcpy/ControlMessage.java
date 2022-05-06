@@ -17,6 +17,9 @@ public final class ControlMessage {
     public static final int TYPE_SET_SCREEN_POWER_MODE = 9;
     public static final int TYPE_ROTATE_DEVICE = 10;
     public static final int TYPE_RESET_VIDEO_STREAM = 12;
+    public static final int TYPE_RESET_IMAGE_STREAM = 13;
+    public static final int SCREEN_ORIENTATION_LANDSCAPE = 15;
+    public static final int SCREEN_ORIENTATION_PORTRAIT = 16;
 
     private int type;
     private String text;
