@@ -161,6 +161,13 @@ public class ScreenEncoder implements Device.RotationListener {
 
             synchronized (imageReaderLock) {
                 try {
+                    //change mode to video mode
+                    if (videoMode){
+                        synchronized (rotationLock) {
+                            rotationLock.notify();
+                        }
+                    }
+
                     if (bImageReaderDisable) {
                         Ln.i("bImageReaderDisable !!!!!!!!!");
                         return;
@@ -260,77 +267,80 @@ public class ScreenEncoder implements Device.RotationListener {
                         }
                     }
                 } else {
-                    IBinder display = createDisplay();
-                    ScreenInfo screenInfo = device.getScreenInfo();
-                    Rect contentRect = device.getScreenInfo().getContentRect();
+                    if (!videoMode){
+                        IBinder display = createDisplay();
+                        Rect contentRect = device.getScreenInfo().getContentRect();
 //                    Rect videoRect = device.getScreenInfo().getVideoSize().toRect();
-                    Rect videoRect = getDesiredSize(contentRect, scale);
-                    Rect unlockedVideoRect = screenInfo.getVideoSize().toRect();
-                    setSize(format, videoRect.width(), videoRect.height());
-                    Surface surface = null;
-                    MediaCodec codec = createCodec(null);
-                    try{
-                        if (videoMode){
+                        Rect videoRect = getDesiredSize(contentRect, scale);
+
+                        synchronized (imageReaderLock) {
+                            mImageReader = ImageReader.newInstance(videoRect.width(), videoRect.height(), PixelFormat.RGBA_8888, 2);
+                            bImageReaderDisable = false;
+                        }
+                        if (imageAvailableListenerImpl == null) {
+                            if (maxFps > 30){
+                                imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, 30, quality);
+                            }else{
+                                imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, maxFps, quality);
+                            }
+                        }
+                        mImageReader.setOnImageAvailableListener(imageAvailableListenerImpl, mHandler);
+                        Surface surface = mImageReader.getSurface();
+                        setDisplaySurface(display, surface, contentRect, videoRect);
+                        // this lock is used for image cycle. It will not exist unless rotate or video mode
+                        synchronized (rotationLock) {
+                            try {
+                                rotationLock.wait();
+                            } catch (InterruptedException e) {
+                                Ln.e("Rotate error " + e);
+                            }
+                        }
+                        synchronized (imageReaderLock) {
+                            if (mImageReader != null) {
+                                bImageReaderDisable = true;
+                                mImageReader.close();
+                            }
+                        }
+                        destroyDisplay(display);
+                        surface.release();
+                        alive = getAlive();
+                    }else{
+                        MediaCodec codec = createCodec(null);
+                        IBinder display = createDisplay();
+                        ScreenInfo screenInfo = device.getScreenInfo();
+                        Rect contentRect = device.getScreenInfo().getContentRect();
+                        Rect videoRect = getDesiredSize(contentRect, scale);
+                        Rect unlockedVideoRect = screenInfo.getVideoSize().toRect();
+                        setSize(format, videoRect.width(), videoRect.height());
+                        Surface surface = null;
+                        try{
                             configure(codec, format);
                             surface = codec.createInputSurface();
                             setDisplaySurface(display, surface, contentRect, videoRect);
                             codec.start();
+
                             alive = encode(codec, fd);
                             // do not call stop() on exception, it would trigger an IllegalStateException
                             codec.stop();
-                        }else{
-                            synchronized (imageReaderLock) {
-                                mImageReader = ImageReader.newInstance(videoRect.width(), videoRect.height(), PixelFormat.RGBA_8888, 2);
-                                bImageReaderDisable = false;
-                            }
-                            if (imageAvailableListenerImpl == null) {
-                                imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, maxFps, quality);
-                            }
-                            mImageReader.setOnImageAvailableListener(imageAvailableListenerImpl, mHandler);
-                            surface = mImageReader.getSurface();
-                            setDisplaySurface(display, surface, contentRect, videoRect);
-                            synchronized (rotationLock) {
-                                try {
-                                    rotationLock.wait();
-                                } catch (InterruptedException e) {
-                                    Ln.e("Rotate error " + e);
-                                }
-                            }
-                            synchronized (imageReaderLock) {
-                                if (mImageReader != null) {
-                                    bImageReaderDisable = true;
-                                    mImageReader.close();
-                                }
-                            }
-                            destroyDisplay(display);
-                            surface.release();
-                            alive = getAlive();
-                        }
+                        }catch (IllegalStateException | IllegalArgumentException e) {
+                            Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
 
-                    }catch (IllegalStateException | IllegalArgumentException e) {
-                        Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
-
-
-                        int newMaxSize = chooseMaxSizeFallback(screenInfo.getVideoSize());
-                        if (newMaxSize == 0) {
-                            // Definitively fail
-                            throw e;
-                        }
-
-                        // Retry with a smaller device size
-                        Ln.i("Retrying with -m" + newMaxSize + "...");
+                            int newMaxSize = chooseMaxSizeFallback(screenInfo.getVideoSize());
+                            if (newMaxSize == 0) {
+                                // Definitively fail
+                                throw e;
+                            }
+                            // Retry with a smaller device size
+                            Ln.i("Retrying with -m" + newMaxSize + "...");
 //                        device.setMaxSize(newMaxSize);
-                        alive = true;
-                    }finally {
-                        destroyDisplay(display);
-                        codec.release();
-                        if (mHandlerThread != null) {
-                            mHandlerThread.quit();
+                            alive = true;
+                        }finally {
+                            destroyDisplay(display);
+                            codec.release();
+                            if (surface != null)
+                                surface.release();
                         }
-                        if (surface != null)
-                            surface.release();
                     }
-
                 }
             } while (alive);
         } catch (Exception e) {
@@ -366,7 +376,7 @@ public class ScreenEncoder implements Device.RotationListener {
             int outputBufferId = codec.dequeueOutputBuffer(bufferInfo, -1);
             eof = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
             try {
-                if (consumeRotationChange() || reconnect) {
+                if (consumeRotationChange() || reconnect || !videoMode) {
                     reconnect = false;
                     // must restart encoding with new size
                     break;
