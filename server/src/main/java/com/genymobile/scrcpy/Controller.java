@@ -114,7 +114,6 @@ public class Controller {
                 device.rotateDevice();
                 break;
             case ControlMessage.TYPE_RESET_VIDEO_STREAM:
-                Log.i("Controller", "reconnect");
                 ScreenEncoder.reconnect = true;
                 ScreenEncoder.videoMode = true;
                 break;

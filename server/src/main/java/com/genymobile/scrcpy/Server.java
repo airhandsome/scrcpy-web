@@ -2,6 +2,7 @@ package com.genymobile.scrcpy;
 
 import android.graphics.Rect;
 import android.media.MediaCodec;
+import android.media.MediaFormat;
 import android.os.Build;
 
 import java.io.File;
@@ -23,6 +24,7 @@ public final class Server {
     }
 
     private static void scrcpy(Options options) throws IOException {
+        MediaCodec codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         AccessibilityNodeInfoDumper dumper = null;
         final Device device = new Device(options);
         boolean tunnelForward = options.isTunnelForward();
@@ -184,7 +186,7 @@ public final class Server {
         // global
         o.setMaxFps(24);
         o.setScale(480);
-        o.setBitRate(1000000);
+        o.setBitRate(3000000);
         o.setSendFrameMeta(true);
         o.setQuality(60);
         // control

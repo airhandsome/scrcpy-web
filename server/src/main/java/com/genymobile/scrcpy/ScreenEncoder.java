@@ -286,7 +286,7 @@ public class ScreenEncoder implements Device.RotationListener {
                         }
                         mImageReader.setOnImageAvailableListener(imageAvailableListenerImpl, mHandler);
                         Surface surface = mImageReader.getSurface();
-                        setDisplaySurface(display, surface, contentRect, videoRect);
+                        setDisplaySurface(display, surface, contentRect, videoRect, 0);
                         // this lock is used for image cycle. It will not exist unless rotate or video mode
                         synchronized (rotationLock) {
                             try {
@@ -305,27 +305,30 @@ public class ScreenEncoder implements Device.RotationListener {
                         surface.release();
                         alive = getAlive();
                     }else{
-                        MediaCodec codec = createCodec(null);
+                        MediaCodec codec = null;
+                        try{
+                            codec = createCodec(null);
+                        }catch (Exception e){
+                            Ln.e("step" + e);
+                        }
+
                         IBinder display = createDisplay();
-                        ScreenInfo screenInfo = device.getScreenInfo();
                         Rect contentRect = device.getScreenInfo().getContentRect();
                         Rect videoRect = getDesiredSize(contentRect, scale);
-                        Rect unlockedVideoRect = screenInfo.getVideoSize().toRect();
                         setSize(format, videoRect.width(), videoRect.height());
                         Surface surface = null;
                         try{
                             configure(codec, format);
                             surface = codec.createInputSurface();
-                            setDisplaySurface(display, surface, contentRect, videoRect);
+                            setDisplaySurface(display, surface, contentRect, videoRect, mRotation.get());
                             codec.start();
-
                             alive = encode(codec, fd);
                             // do not call stop() on exception, it would trigger an IllegalStateException
                             codec.stop();
                         }catch (IllegalStateException | IllegalArgumentException e) {
                             Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
 
-                            int newMaxSize = chooseMaxSizeFallback(screenInfo.getVideoSize());
+                            int newMaxSize = chooseMaxSizeFallback(new Size(videoRect.width(), videoRect.height()) );
                             if (newMaxSize == 0) {
                                 // Definitively fail
                                 throw e;
@@ -403,6 +406,7 @@ public class ScreenEncoder implements Device.RotationListener {
 
         return !eof;
     }
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private static MediaCodec createCodec(String encoderName) throws IOException {
         if (encoderName != null) {
             Ln.d("Creating encoder by name: '" + encoderName + "'");
@@ -413,7 +417,13 @@ public class ScreenEncoder implements Device.RotationListener {
                 throw new InvalidEncoderException(encoderName, encoders);
             }
         }
-        MediaCodec codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+        MediaCodec codec = null;
+        try{
+            codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
+        }catch (Exception e){
+            Ln.e("step " + e);
+        }
+
         Ln.d("Using encoder: '" + codec.getName() + "'");
         return codec;
     }
@@ -496,6 +506,7 @@ public class ScreenEncoder implements Device.RotationListener {
     private Rect getDesiredSize(Rect contentRect, int resolution) {
         int realWidth = contentRect.width();
         int realHeight = contentRect.height();
+
         int desiredWidth = realWidth;
         int desiredHeight = realHeight;
         int h = realHeight;
@@ -511,6 +522,13 @@ public class ScreenEncoder implements Device.RotationListener {
             desiredWidth &= ~7;
             desiredHeight &= ~7;
         }
+
+        if (desiredHeight < desiredWidth && videoMode){
+            int tmp = desiredHeight;
+            desiredHeight = desiredWidth;
+            desiredWidth = tmp;
+        }
+
         Ln.i("realWidth: " + realWidth + ", realHeight: " + realHeight + ", desiredWidth: " + desiredWidth + ", desiredHeight: " + desiredHeight);
         return new Rect(0, 0, desiredWidth, desiredHeight);
     }
@@ -577,11 +595,15 @@ public class ScreenEncoder implements Device.RotationListener {
         return SurfaceControl.createDisplay("scrcpy", secure);
     }
 
-    private static void setDisplaySurface(IBinder display, Surface surface, Rect deviceRect, Rect displayRect) {
+    private static void setDisplaySurface(IBinder display, Surface surface, Rect deviceRect, Rect displayRect, int orientation) {
         SurfaceControl.openTransaction();
         try {
             SurfaceControl.setDisplaySurface(display, surface);
-            SurfaceControl.setDisplayProjection(display, 0, deviceRect, displayRect);
+            if (orientation > 0 && videoMode){
+                displayRect = new Rect(0, 0, displayRect.height(), displayRect.width());
+            }
+//            Ln.i("set size realWidth: " + deviceRect.width() + ", realHeight: " + deviceRect.height() + ", desiredWidth: " + displayRect.width() + ", desiredHeight: " + displayRect.height());
+            SurfaceControl.setDisplayProjection(display, orientation, deviceRect, displayRect);
             SurfaceControl.setDisplayLayerStack(display, 0);
         } finally {
             SurfaceControl.closeTransaction();
