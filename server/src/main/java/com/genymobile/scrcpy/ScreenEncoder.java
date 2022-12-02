@@ -522,8 +522,8 @@ public class ScreenEncoder implements Device.RotationListener {
             desiredWidth &= ~7;
             desiredHeight &= ~7;
         }
-
-        if (desiredHeight < desiredWidth && videoMode){
+        int rotation = mRotation.get();
+        if (rotation == 1 && videoMode){
             int tmp = desiredHeight;
             desiredHeight = desiredWidth;
             desiredWidth = tmp;
