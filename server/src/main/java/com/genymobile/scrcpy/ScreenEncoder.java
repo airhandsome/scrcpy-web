@@ -269,7 +269,7 @@ public class ScreenEncoder implements Device.RotationListener {
                 } else {
                     if (!videoMode){
                         IBinder display = createDisplay();
-                        Rect contentRect = device.getScreenInfo().getContentRect();
+                        Rect contentRect = device.getScreenInfo().getVideoRect();
 //                    Rect videoRect = device.getScreenInfo().getVideoSize().toRect();
                         Rect videoRect = getDesiredSize(contentRect, scale);
 
@@ -313,7 +313,7 @@ public class ScreenEncoder implements Device.RotationListener {
                         }
 
                         IBinder display = createDisplay();
-                        Rect contentRect = device.getScreenInfo().getContentRect();
+                        Rect contentRect = device.getScreenInfo().getVideoRect();
                         Rect videoRect = getDesiredSize(contentRect, scale);
                         setSize(format, videoRect.width(), videoRect.height());
                         Surface surface = null;
@@ -554,7 +554,8 @@ public class ScreenEncoder implements Device.RotationListener {
         final byte version = 1;
         final byte quirks = 2;
         int pid = Process.myPid();
-        Rect contentRect = device.getScreenInfo().getContentRect();
+//        Rect contentRect = device.getScreenInfo().getContentRect();
+        Rect contentRect = device.getScreenInfo().getVideoRect();
         Rect videoRect = getDesiredSize(contentRect, scale);
         int realWidth = contentRect.width();
         int realHeight = contentRect.height();
