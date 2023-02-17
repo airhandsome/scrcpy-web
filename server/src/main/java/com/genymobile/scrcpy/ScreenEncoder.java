@@ -49,6 +49,7 @@ public class ScreenEncoder implements Device.RotationListener {
     private static final long PACKET_FLAG_CONFIG = 1L << 63;
     private static final long PACKET_FLAG_KEY_FRAME = 1L << 62;
     private static final int NO_PTS = -1;
+    private static final byte[] MAGIC_TAG = {0x01, 0x02, 0x03, 0x04};
 
     private final AtomicBoolean rotationChanged = new AtomicBoolean();
     private final AtomicInteger mRotation = new AtomicInteger(0);
@@ -370,6 +371,18 @@ public class ScreenEncoder implements Device.RotationListener {
     private static void configure(MediaCodec codec, MediaFormat format) {
         codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
     }
+
+    private void packdata(ByteBuffer buffer, FileDescriptor fd) throws IOException {
+        int arrayLength = buffer.remaining();
+        int totalLength = MAGIC_TAG.length + 4 + arrayLength;
+        ByteBuffer pack = ByteBuffer.allocate(totalLength);
+        pack.put(MAGIC_TAG);
+        pack.putInt(arrayLength);
+        pack.put(buffer);
+        pack.flip();
+        IO.writeFully(fd, pack);
+    }
+
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private boolean encode(MediaCodec codec, FileDescriptor fd) throws IOException {
         boolean eof = false;
@@ -391,7 +404,8 @@ public class ScreenEncoder implements Device.RotationListener {
                         writeFrameMeta(fd, bufferInfo, codecBuffer.remaining());
                     }
 
-                    IO.writeFully(fd, codecBuffer);
+//                    IO.writeFully(fd, codecBuffer);
+                    packdata(codecBuffer, fd);
                     if ((bufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0) {
                         // If this is not a config packet, then it contains a frame
                         firstFrameSent = true;
