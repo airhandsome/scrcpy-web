@@ -15,8 +15,8 @@ public final class DesktopConnection implements Closeable {
 
     private static final int DEVICE_NAME_FIELD_LENGTH = 64;
 
-    private static final String SOCKET_NAME = "svideo";
-    private static final String CONTROL_NAME = "svideo-control";
+    private static final String SOCKET_NAME = "scrcpy-video";
+    private static final String CONTROL_NAME = "scrcpy-video-control";
     private static final int SOCKET_PORT = 6612;
     private static final int CONTROL_SOCKET_PORT = 6613;
 
