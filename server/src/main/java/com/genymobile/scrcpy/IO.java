@@ -2,12 +2,16 @@ package com.genymobile.scrcpy;
 
 import android.annotation.TargetApi;
 import android.os.Build;
+import android.system.ErrnoException;
 import android.system.Os;
+import android.system.OsConstants;
 
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.util.Scanner;
 
 public final class IO {
     private IO() {
@@ -38,4 +42,18 @@ public final class IO {
         writeFully(channel, ByteBuffer.wrap(buffer, offset, len));
     }
 
+    public static String toString(InputStream inputStream) {
+        StringBuilder builder = new StringBuilder();
+        Scanner scanner = new Scanner(inputStream);
+        while (scanner.hasNextLine()) {
+            builder.append(scanner.nextLine()).append('\n');
+        }
+        return builder.toString();
+    }
+
+    @TargetApi(Build.VERSION_CODES.LOLLIPOP)
+    public static boolean isBrokenPipe(IOException e) {
+        Throwable cause = e.getCause();
+        return cause instanceof ErrnoException && ((ErrnoException) cause).errno == OsConstants.EPIPE;
+    }
 }

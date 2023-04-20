@@ -3,9 +3,17 @@ package com.genymobile.scrcpy;
 import android.graphics.Rect;
 
 public class Options {
+    private Ln.Level logLevel = Ln.Level.DEBUG;
+    private int scid = -1; // 31-bit non-negative value, or -1
+    private boolean audio = true;
     private int maxSize;
+    private VideoCodec videoCodec = VideoCodec.H264;
+    private AudioCodec audioCodec = AudioCodec.OPUS;
+    private int videoBitRate = 8000000;
+    private int audioBitRate = 128000;
     private int bitRate;
     private int maxFps;
+    private int lockVideoOrientation = -1;
     private boolean tunnelForward;
     private Rect crop;
     private boolean sendFrameMeta; // send PTS so that the client may record properly
@@ -18,6 +26,9 @@ public class Options {
     private boolean nalu;
     private boolean dumpHierarchy;
 
+    public int getDisplayId() {
+        return displayId;
+    }
     public int getMaxSize() {
         return maxSize;
     }
@@ -112,5 +123,12 @@ public class Options {
 
     public void setDumpHierarchy(boolean dumpHierarchy) {
         this.dumpHierarchy = dumpHierarchy;
+    }
+    public int getLockVideoOrientation() {
+        return lockVideoOrientation;
+    }
+
+    public void setLockVideoOrientation(int lockVideoOrientation) {
+        this.lockVideoOrientation = lockVideoOrientation;
     }
 }

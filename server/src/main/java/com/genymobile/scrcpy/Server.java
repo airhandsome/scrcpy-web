@@ -16,7 +16,6 @@ import android.os.Handler;
 
 public final class Server {
 
-    private static final String SERVER_PATH = "/data/local/tmp/scrcpy-server.jar";
     private static Handler handler;
 
     private Server() {
@@ -271,13 +270,7 @@ public final class Server {
         return new Rect(x, y, x + width, y + height);
     }
 
-    private static void unlinkSelf() {
-        try {
-            new File(SERVER_PATH).delete();
-        } catch (Exception e) {
-            Ln.e("Could not unlink server", e);
-        }
-    }
+
 
     @SuppressWarnings("checkstyle:MagicNumber")
     private static void suggestFix(Throwable e) {

@@ -4,18 +4,20 @@ import android.annotation.SuppressLint;
 import android.os.IBinder;
 import android.os.IInterface;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 
 @SuppressLint("PrivateApi")
 public final class ServiceManager {
     private final Method getServiceMethod;
 
-    private WindowManager windowManager;
-    private DisplayManager displayManager;
-    private InputManager inputManager;
-    private PowerManager powerManager;
-    private StatusBarManager statusBarManager;
-    private ClipboardManager clipboardManager;
+    private static WindowManager windowManager;
+    private static DisplayManager displayManager;
+    private static InputManager inputManager;
+    private static PowerManager powerManager;
+    private static StatusBarManager statusBarManager;
+    private static ClipboardManager clipboardManager;
+    private static ActivityManager activityManager;
 
     public ServiceManager() {
         try {
@@ -42,9 +44,16 @@ public final class ServiceManager {
         return windowManager;
     }
 
-    public DisplayManager getDisplayManager() {
+    public static DisplayManager getDisplayManager() {
         if (displayManager == null) {
-            displayManager = new DisplayManager(getService("display", "android.hardware.display.IDisplayManager"));
+            try {
+                Class<?> clazz = Class.forName("android.hardware.display.DisplayManagerGlobal");
+                Method getInstanceMethod = clazz.getDeclaredMethod("getInstance");
+                Object dmg = getInstanceMethod.invoke(null);
+                displayManager = new DisplayManager(dmg);
+            } catch (ClassNotFoundException | NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                throw new AssertionError(e);
+            }
         }
         return displayManager;
     }
@@ -75,5 +84,21 @@ public final class ServiceManager {
             clipboardManager = new ClipboardManager(getService("clipboard", "android.content.IClipboard"));
         }
         return clipboardManager;
+    }
+    public static ActivityManager getActivityManager() {
+        if (activityManager == null) {
+            try {
+                // On old Android versions, the ActivityManager is not exposed via AIDL,
+                // so use ActivityManagerNative.getDefault()
+                Class<?> cls = Class.forName("android.app.ActivityManagerNative");
+                Method getDefaultMethod = cls.getDeclaredMethod("getDefault");
+                IInterface am = (IInterface) getDefaultMethod.invoke(null);
+                activityManager = new ActivityManager(am);
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        }
+
+        return activityManager;
     }
 }
