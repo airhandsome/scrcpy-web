@@ -249,8 +249,7 @@ public class ScreenEncoder implements Device.RotationListener {
 
     @SuppressLint("WrongConstant")
     public void streamScreen(Device device, FileDescriptor fd) throws IOException {
-        Workarounds.prepareMainLooper();
-        Workarounds.fillAppInfo();
+
 
         device.setRotationListener(this);
         MediaFormat format = createFormat(bitRate, maxFps, codecOptions);

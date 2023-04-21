@@ -15,13 +15,16 @@ import android.view.MotionEvent;
 
 import java.io.IOException;
 
-public class Controller {
+public class Controller implements AsyncProcessor{
 
     private static final int DEVICE_ID_VIRTUAL = -1;
 
     private final Device device;
     private final DesktopConnection connection;
     private final DeviceMessageSender sender;
+    private final boolean clipboardAutosync;
+    private final boolean powerOn;
+    private Thread thread;
 
     private final KeyCharacterMap charMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
 
@@ -30,9 +33,11 @@ public class Controller {
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[PointersState.MAX_POINTERS];
     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[PointersState.MAX_POINTERS];
     private final ServiceManager serviceManager = new ServiceManager();
-    public Controller(Device device, DesktopConnection connection) {
+    public Controller(Device device, DesktopConnection connection, boolean clipboardAutosync, boolean powerOn) {
         this.device = device;
         this.connection = connection;
+        this.clipboardAutosync = clipboardAutosync;
+        this.powerOn = powerOn;
         initPointers();
         sender = new DeviceMessageSender(connection);
     }
@@ -242,5 +247,33 @@ public class Controller {
     private boolean pressBackOrTurnScreenOn() {
         int keycode = device.isScreenOn() ? KeyEvent.KEYCODE_BACK : KeyEvent.KEYCODE_POWER;
         return injectKeycode(keycode);
+    }
+
+    public void start() {
+        thread = new Thread(() -> {
+            try {
+                control();
+            } catch (IOException e) {
+                // this is expected on close
+            } finally {
+                Ln.d("Controller stopped");
+            }
+        });
+        thread.start();
+        sender.start();
+    }
+
+    public void stop() {
+        if (thread != null) {
+            thread.interrupt();
+        }
+        sender.stop();
+    }
+
+    public void join() throws InterruptedException {
+        if (thread != null) {
+            thread.join();
+        }
+        sender.join();
     }
 }

@@ -21,6 +21,7 @@ public final class ControlMessage {
     public static final int SCREEN_ORIENTATION_LANDSCAPE = 15;
     public static final int SCREEN_ORIENTATION_PORTRAIT = 16;
 
+    public static final long SEQUENCE_INVALID = 0;
     private int type;
     private String text;
     private int metaState; // KeyEvent.META_*

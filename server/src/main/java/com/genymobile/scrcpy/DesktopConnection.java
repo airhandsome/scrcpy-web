@@ -15,10 +15,10 @@ public final class DesktopConnection implements Closeable {
 
     private static final int DEVICE_NAME_FIELD_LENGTH = 64;
 
-    private static final String SOCKET_NAME = "svideo";
+    private static final String VIDEO_SOCKET_NAME = "svideo";
+    private static final String AUDIO_SOCKET_NAME = "saudio";
     private static final String CONTROL_NAME = "svideo-control";
-    private static final int SOCKET_PORT = 6612;
-    private static final int CONTROL_SOCKET_PORT = 6613;
+
 
     private final LocalSocket videoSocket;
     private final FileDescriptor videoFd;
@@ -27,15 +27,20 @@ public final class DesktopConnection implements Closeable {
     private final InputStream controlInputStream;
     private final OutputStream controlOutputStream;
 
+    private final LocalSocket audioSocket;
+    private final FileDescriptor audioFd;
     private final ControlMessageReader reader = new ControlMessageReader();
     private final DeviceMessageWriter writer = new DeviceMessageWriter();
 
-    private DesktopConnection(LocalSocket videoSocket, LocalSocket controlSocket) throws IOException {
+    private DesktopConnection(LocalSocket videoSocket, LocalSocket controlSocket, LocalSocket audioSocket) throws IOException {
         this.videoSocket = videoSocket;
         this.controlSocket = controlSocket;
+        this.audioSocket = audioSocket;
+
         controlInputStream = controlSocket.getInputStream();
         controlOutputStream = controlSocket.getOutputStream();
         videoFd = videoSocket.getFileDescriptor();
+        audioFd = audioSocket != null ? audioSocket.getFileDescriptor(): null;
     }
 
     private static LocalSocket connect(String abstractName) throws IOException {
@@ -44,29 +49,35 @@ public final class DesktopConnection implements Closeable {
         return localSocket;
     }
 
-    public static DesktopConnection open(Device device, boolean tunnelForward) throws IOException {
+    public static DesktopConnection open(boolean tunnelForward, boolean audio) throws IOException {
         LocalSocket videoSocket = null;
+        LocalSocket audioSocket = null;
         LocalSocket controlSocket = null;
         if (tunnelForward) {
-//            ServerSocketChannel localServerSocket = ServerSocketChannel.open();
-//            ServerSocketChannel controlServerSocket = ServerSocketChannel.open();
-//            localServerSocket.socket().bind(new InetSocketAddress(SOCKET_PORT));
-//            controlServerSocket.socket().bind(new InetSocketAddress(CONTROL_SOCKET_PORT));
 
-            LocalServerSocket localServerSocket = new LocalServerSocket(SOCKET_NAME);
+            LocalServerSocket videoServerSocket = new LocalServerSocket(VIDEO_SOCKET_NAME);
+            LocalServerSocket audioServerSocket = new LocalServerSocket(AUDIO_SOCKET_NAME);
             LocalServerSocket controlServerSocket = new LocalServerSocket(CONTROL_NAME);
             try {
-                videoSocket = localServerSocket.accept();
+                videoSocket = videoServerSocket.accept();
                 // send one byte so the client may read() to detect a connection error
 //                videoSocket.getOutputStream().write(0);//wen disable
                 try {
                     controlSocket = controlServerSocket.accept();
                 } catch (IOException | RuntimeException e) {
-                    videoSocket.close();
+                    controlServerSocket.close();
                     throw e;
                 }
+                if (audio){
+                    try {
+                        audioSocket = audioServerSocket.accept();
+                    } catch (IOException | RuntimeException e) {
+                        audioServerSocket.close();
+                        throw e;
+                    }
+                }
             } finally {
-                localServerSocket.close();
+                videoServerSocket.close();
             }
         } else {
 //            videoSocket = connect(SOCKET_NAME);
@@ -78,9 +89,7 @@ public final class DesktopConnection implements Closeable {
 //            }
         }
 
-        DesktopConnection connection = new DesktopConnection(videoSocket, controlSocket);
-        Size videoSize = device.getScreenInfo().getVideoSize();
-//        connection.send(Device.getDeviceName(), videoSize.getWidth(), videoSize.getHeight());//wen disable
+        DesktopConnection connection = new DesktopConnection(videoSocket, controlSocket, audioSocket);
         return connection;
     }
 
@@ -91,6 +100,9 @@ public final class DesktopConnection implements Closeable {
         controlSocket.shutdownInput();
         controlSocket.shutdownOutput();
         controlSocket.close();
+        audioSocket.shutdownInput();
+        audioSocket.shutdownOutput();;
+        audioSocket.close();
     }
 
 //    @SuppressWarnings("checkstyle:MagicNumber")
@@ -112,7 +124,9 @@ public final class DesktopConnection implements Closeable {
     public FileDescriptor getVideoFd() {
         return videoFd;
     }
-
+    public FileDescriptor getAudioFd(){
+        return audioFd;
+    }
     public ControlMessage receiveControlMessage() throws IOException {
         ControlMessage msg = reader.next();
         while (msg == null) {

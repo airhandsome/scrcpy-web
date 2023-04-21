@@ -70,7 +70,7 @@ public class Options {
     public void setAudio(boolean audio) {
         this.audio = audio;
     }
-    
+
     public int getMaxSize() {
         return maxSize;
     }

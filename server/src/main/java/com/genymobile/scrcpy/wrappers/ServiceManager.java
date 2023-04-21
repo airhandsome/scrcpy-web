@@ -9,7 +9,14 @@ import java.lang.reflect.Method;
 
 @SuppressLint("PrivateApi")
 public final class ServiceManager {
-    private final Method getServiceMethod;
+    private static final Method GET_SERVICE_METHOD;
+    static {
+        try {
+            GET_SERVICE_METHOD = Class.forName("android.os.ServiceManager").getDeclaredMethod("getService", String.class);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
 
     private static WindowManager windowManager;
     private static DisplayManager displayManager;
@@ -20,16 +27,11 @@ public final class ServiceManager {
     private static ActivityManager activityManager;
 
     public ServiceManager() {
-        try {
-            getServiceMethod = Class.forName("android.os.ServiceManager").getDeclaredMethod("getService", String.class);
-        } catch (Exception e) {
-            throw new AssertionError(e);
-        }
     }
 
-    private IInterface getService(String service, String type) {
+    private static IInterface getService(String service, String type) {
         try {
-            IBinder binder = (IBinder) getServiceMethod.invoke(null, service);
+            IBinder binder = (IBinder) GET_SERVICE_METHOD.invoke(null, service);
             Method asInterfaceMethod = Class.forName(type + "$Stub").getMethod("asInterface", IBinder.class);
             return (IInterface) asInterfaceMethod.invoke(null, binder);
         } catch (Exception e) {
@@ -37,7 +39,7 @@ public final class ServiceManager {
         }
     }
 
-    public WindowManager getWindowManager() {
+    public static WindowManager getWindowManager() {
         if (windowManager == null) {
             windowManager = new WindowManager(getService("window", "android.view.IWindowManager"));
         }
@@ -58,28 +60,34 @@ public final class ServiceManager {
         return displayManager;
     }
 
-    public InputManager getInputManager() {
+    public static InputManager getInputManager() {
         if (inputManager == null) {
-            inputManager = new InputManager(getService("input", "android.hardware.input.IInputManager"));
+            try {
+                Method getInstanceMethod = android.hardware.input.InputManager.class.getDeclaredMethod("getInstance");
+                android.hardware.input.InputManager im = (android.hardware.input.InputManager) getInstanceMethod.invoke(null);
+                inputManager = new InputManager(im);
+            } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                throw new AssertionError(e);
+            }
         }
         return inputManager;
     }
 
-    public PowerManager getPowerManager() {
+    public static PowerManager getPowerManager() {
         if (powerManager == null) {
             powerManager = new PowerManager(getService("power", "android.os.IPowerManager"));
         }
         return powerManager;
     }
 
-    public StatusBarManager getStatusBarManager() {
+    public static StatusBarManager getStatusBarManager() {
         if (statusBarManager == null) {
             statusBarManager = new StatusBarManager(getService("statusbar", "com.android.internal.statusbar.IStatusBarService"));
         }
         return statusBarManager;
     }
 
-    public ClipboardManager getClipboardManager() {
+    public static ClipboardManager getClipboardManager() {
         if (clipboardManager == null) {
             clipboardManager = new ClipboardManager(getService("clipboard", "android.content.IClipboard"));
         }

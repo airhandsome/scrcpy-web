@@ -3,6 +3,7 @@ package com.genymobile.scrcpy;
 import android.graphics.Rect;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
+import android.os.BatteryManager;
 import android.os.Build;
 
 import java.io.File;
@@ -11,6 +12,8 @@ import java.lang.System;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileDescriptor;
+import java.util.ArrayList;
+import java.util.List;
 
 import android.os.Handler;
 
@@ -21,23 +24,115 @@ public final class Server {
     private Server() {
         // not instantiable
     }
+    private static void initAndCleanUp(Options options) {
+        boolean mustDisableShowTouchesOnCleanUp = false;
+        int restoreStayOn = -1;
+        boolean restoreNormalPowerMode = options.getControl(); // only restore power mode if control is enabled
+        if (options.getShowTouches() || options.getStayAwake()) {
+            if (options.getShowTouches()) {
+                try {
+                    String oldValue = Settings.getAndPutValue(Settings.TABLE_SYSTEM, "show_touches", "1");
+                    // If "show touches" was disabled, it must be disabled back on clean up
+                    mustDisableShowTouchesOnCleanUp = !"1".equals(oldValue);
+                } catch (SettingsException e) {
+                    Ln.e("Could not change \"show_touches\"", e);
+                }
+            }
 
+            if (options.getStayAwake()) {
+                int stayOn = BatteryManager.BATTERY_PLUGGED_AC | BatteryManager.BATTERY_PLUGGED_USB | BatteryManager.BATTERY_PLUGGED_WIRELESS;
+                try {
+                    String oldValue = Settings.getAndPutValue(Settings.TABLE_GLOBAL, "stay_on_while_plugged_in", String.valueOf(stayOn));
+                    try {
+                        restoreStayOn = Integer.parseInt(oldValue);
+                        if (restoreStayOn == stayOn) {
+                            // No need to restore
+                            restoreStayOn = -1;
+                        }
+                    } catch (NumberFormatException e) {
+                        restoreStayOn = 0;
+                    }
+                } catch (SettingsException e) {
+                    Ln.e("Could not change \"stay_on_while_plugged_in\"", e);
+                }
+            }
+        }
+
+        if (options.getCleanup()) {
+            try {
+                CleanUp.configure(options.getDisplayId(), restoreStayOn, mustDisableShowTouchesOnCleanUp, restoreNormalPowerMode,
+                        options.getPowerOffScreenOnClose());
+            } catch (IOException e) {
+                Ln.e("Could not configure cleanup", e);
+            }
+        }
+    }
     private static void scrcpy(Options options) throws IOException {
         MediaCodec codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         AccessibilityNodeInfoDumper dumper = null;
         final Device device = new Device(options);
         boolean tunnelForward = options.isTunnelForward();
+        boolean control = options.getControl();
+        boolean audio = options.getAudio();
+        boolean sendDummyByte = options.getSendDummyByte();
 
-        try (DesktopConnection connection = DesktopConnection.open(device, tunnelForward)) {
+        Workarounds.prepareMainLooper();
+
+        // Workarounds must be applied for Meizu phones:
+        //  - <https://github.com/Genymobile/scrcpy/issues/240>
+        //  - <https://github.com/Genymobile/scrcpy/issues/365>
+        //  - <https://github.com/Genymobile/scrcpy/issues/2656>
+        //
+        // But only apply when strictly necessary, since workarounds can cause other issues:
+        //  - <https://github.com/Genymobile/scrcpy/issues/940>
+        //  - <https://github.com/Genymobile/scrcpy/issues/994>
+        boolean mustFillAppInfo = Build.BRAND.equalsIgnoreCase("meizu");
+
+        // Before Android 11, audio is not supported.
+        // Since Android 12, we can properly set a context on the AudioRecord.
+        // Only on Android 11 we must fill app info for the AudioRecord to work.
+        mustFillAppInfo |= audio && Build.VERSION.SDK_INT == Build.VERSION_CODES.R;
+
+        if (mustFillAppInfo) {
+            Workarounds.fillAppInfo();
+        }
+
+        List<AsyncProcessor> asyncProcessors = new ArrayList<>();
+
+        try (DesktopConnection connection = DesktopConnection.open(tunnelForward, audio)) {
             ScreenEncoder screenEncoder = new ScreenEncoder(options, device);
             handler = screenEncoder.getHandler();
-            if (options.getControl()) {
-                Controller controller = new Controller(device, connection);
+            if (control) {
 
+                Controller controller = new Controller(device, connection, options.getClipboardAutosync(), options.getPowerOn());
+                device.setClipboardListener(text -> controller.getSender().pushClipboardText(text));
+                asyncProcessors.add(controller);
+                /*
+                Controller controller = new Controller(device, connection);
                 // asynchronous
                 startController(controller);
                 startDeviceMessageSender(controller.getSender());
+
+                 */
             }
+            if (audio){
+                AudioCodec audioCodec = options.getAudioCodec();
+                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(),
+                        options.getSendFrameMeta());
+                AsyncProcessor audioRecorder;
+                if (audioCodec == AudioCodec.RAW) {
+                    audioRecorder = new AudioRawRecorder(audioStreamer);
+                } else {
+                    audioRecorder = new AudioEncoder(audioStreamer, options.getAudioBitRate(), options.getAudioCodecOptions(),
+                            options.getAudioEncoder());
+                }
+                asyncProcessors.add(audioRecorder);
+            }
+
+            for (AsyncProcessor asyncProcessor : asyncProcessors) {
+                asyncProcessor.start();
+            }
+
 
             if (options.getDumpHierarchy()) {
                 dumper = new AccessibilityNodeInfoDumper(handler, device, connection);
@@ -48,8 +143,9 @@ public final class Server {
                 // synchronous
                 screenEncoder.streamScreen(device, connection.getVideoFd());
             } catch (IOException e) {
-                Ln.i("exit: " + e.getMessage());
-                //do exit(0)
+                if (!IO.isBrokenPipe(e)){
+                    Ln.e("video encoding error" + e.getMessage());
+                }
             } finally {
                 if (options.getDumpHierarchy() && dumper != null) {
                     dumper.stop();
@@ -62,34 +158,6 @@ public final class Server {
         }
     }
 
-    private static void startController(final Controller controller) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    controller.control();
-                } catch (IOException e) {
-                    // this is expected on close
-                    Ln.d("Controller stopped");
-                    Common.stopScrcpy(handler, "control");
-                }
-            }
-        }).start();
-    }
-
-    private static void startDeviceMessageSender(final DeviceMessageSender sender) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    sender.loop();
-                } catch (IOException | InterruptedException e) {
-                    // this is expected on close
-                    Ln.d("Device message sender stopped");
-                }
-            }
-        }).start();
-    }
 
     @SuppressWarnings("checkstyle:MagicNumber")
     private static Options createOptions(String... args) {
@@ -148,6 +216,7 @@ public final class Server {
         options.addOption("D", false, "Dump window hierarchy");
         options.addOption("h", false, "Show help");
         options.addOption("m", true, "choose the stream mode for video or image");
+        options.addOption("a", true, "If or not capture audio(default true)");
         try {
             commandLine = parser.parse(options, args);
         } catch (Exception e) {
@@ -182,6 +251,7 @@ public final class Server {
         o.setTunnelForward(true);
         o.setCrop(null);
         o.setControl(true);
+        o.setAudio(true);
         // global
         o.setMaxFps(24);
         o.setScale(480);
@@ -247,6 +317,13 @@ public final class Server {
                     ScreenEncoder.videoMode = false;
                 }
                 Ln.e("videoMode:" + ScreenEncoder.videoMode);
+            }catch (Exception e){
+            }
+        }
+        if (commandLine.hasOption('a')){
+            try{
+                boolean audio = Boolean.parseBoolean(commandLine.getOptionValue('a'));
+                o.setAudio(audio);
             }catch (Exception e){
             }
         }
