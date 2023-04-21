@@ -100,8 +100,7 @@ public final class Server {
         List<AsyncProcessor> asyncProcessors = new ArrayList<>();
 
         try (DesktopConnection connection = DesktopConnection.open(tunnelForward, audio)) {
-            ScreenEncoder screenEncoder = new ScreenEncoder(options, device);
-            handler = screenEncoder.getHandler();
+
             if (control) {
 
                 Controller controller = new Controller(device, connection, options.getClipboardAutosync(), options.getPowerOn());
@@ -140,6 +139,10 @@ public final class Server {
             }
 
             try {
+                Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
+                        options.getSendFrameMeta());
+                ScreenEncoder screenEncoder = new ScreenEncoder(options, device, videoStreamer);
+                handler = screenEncoder.getHandler();
                 // synchronous
                 screenEncoder.streamScreen(device, connection.getVideoFd());
             } catch (IOException e) {
@@ -182,7 +185,7 @@ public final class Server {
         options.setMaxSize(maxSize);
 
         int bitRate = Integer.parseInt(args[2]);
-        options.setBitRate(bitRate);
+        options.setVideoBitRate(bitRate);
 
         int maxFps = Integer.parseInt(args[3]);
         options.setMaxFps(maxFps);
@@ -255,7 +258,7 @@ public final class Server {
         // global
         o.setMaxFps(24);
         o.setScale(480);
-        o.setBitRate(3000000);
+        o.setVideoBitRate(3000000);
         o.setSendFrameMeta(true);
         o.setQuality(60);
         // control
@@ -269,7 +272,7 @@ public final class Server {
             } catch (Exception e) {
             }
             if (i > 200 && i <= 10000) {
-                o.setBitRate(i * 1000);
+                o.setVideoBitRate(i * 1000);
             }
         }
         if (commandLine.hasOption('Q')) {
@@ -376,7 +379,7 @@ public final class Server {
 //        Options options = createOptions(args);
         final Options options = customOptions(args);
         Ln.i("Options frame rate: " + options.getMaxFps() + " (1 ~ 10)");
-        Ln.i("Options bitrate: " + options.getBitRate() + " (200K-10M)");
+        Ln.i("Options bitrate: " + options.getVideoBitRate() + " (200K-10M)");
         Ln.i("Options projection: " + options.getScale() + " (1080, 720, 480, 360...)");
         Ln.i("Options control only: " + options.getControlOnly() + " (true / false)");
         scrcpy(options);

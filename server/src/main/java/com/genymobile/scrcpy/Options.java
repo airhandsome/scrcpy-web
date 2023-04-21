@@ -79,13 +79,6 @@ public class Options {
         this.maxSize = maxSize;
     }
 
-    public int getBitRate() {
-        return bitRate;
-    }
-
-    public void setBitRate(int bitRate) {
-        this.bitRate = bitRate;
-    }
     public VideoCodec getVideoCodec() {
         return videoCodec;
     }

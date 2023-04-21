@@ -48,7 +48,7 @@ public class ScreenEncoder implements Device.RotationListener {
     private static final int[] MAX_SIZE_FALLBACK = {2560, 1920, 1600, 1280, 1024, 800};
     private static final long PACKET_FLAG_CONFIG = 1L << 63;
     private static final long PACKET_FLAG_KEY_FRAME = 1L << 62;
-    private static final int NO_PTS = -1;
+    private static final int MAX_CONSECUTIVE_ERRORS = 3;
 
     private final AtomicBoolean rotationChanged = new AtomicBoolean();
     private final AtomicInteger mRotation = new AtomicInteger(0);
@@ -72,10 +72,12 @@ public class ScreenEncoder implements Device.RotationListener {
     private final Object rotationLock = new Object();
     private final Object imageReaderLock = new Object();
     private boolean bImageReaderDisable = true;//Segmentation fault
-    private final List<CodecOption> codecOptions = CodecOption.parse("");
+    private List<CodecOption> codecOptions = CodecOption.parse("");
     private boolean alive = true;
     private boolean firstFrameSent;
-
+    private Streamer streamer;
+    private String encoderName;
+    private boolean downsizeOnError;
     public ScreenEncoder(boolean sendFrameMeta, int bitRate, int maxFps, int iFrameInterval) {
         this.sendFrameMeta = sendFrameMeta;
         this.bitRate = bitRate;
@@ -86,13 +88,24 @@ public class ScreenEncoder implements Device.RotationListener {
     public ScreenEncoder(boolean sendFrameMeta, int bitRate, int maxFps) {
         this(sendFrameMeta, bitRate, maxFps, DEFAULT_I_FRAME_INTERVAL);
     }
+    public ScreenEncoder(Device device, Streamer streamer, int videoBitRate, int maxFps, List<CodecOption> codecOptions, String encoderName,
+                         boolean downsizeOnError) {
+        this.device = device;
+        this.streamer = streamer;
+        this.bitRate = videoBitRate;
+        this.maxFps = maxFps;
+        this.codecOptions = codecOptions;
+        this.encoderName = encoderName;
+        this.downsizeOnError = downsizeOnError;
+    }
 
-    public ScreenEncoder(Options options, Device device/*int rotation*/) {
+    public ScreenEncoder(Options options, Device device, Streamer streamer/*int rotation*/) {
+        this.streamer = streamer;
         this.quality = options.getQuality();
         this.maxFps = options.getMaxFps();
         this.scale = options.getScale();
         this.controlOnly = options.getControlOnly();
-        this.bitRate = options.getBitRate();
+        this.bitRate = options.getVideoBitRate();
         this.device = device;
         mRotation.set(device.getRotation());
 
@@ -249,8 +262,6 @@ public class ScreenEncoder implements Device.RotationListener {
 
     @SuppressLint("WrongConstant")
     public void streamScreen(Device device, FileDescriptor fd) throws IOException {
-
-
         device.setRotationListener(this);
         MediaFormat format = createFormat(bitRate, maxFps, codecOptions);
         boolean alive = false;
@@ -258,92 +269,84 @@ public class ScreenEncoder implements Device.RotationListener {
             writeMinicapBanner(device, fd, scale);
             do {
                 writeRotation(fd);
-                if (controlOnly) {
+                if (!videoMode){
+                    IBinder display = createDisplay();
+                    Rect contentRect = device.getScreenInfo().getVideoRect();
+//                    Rect videoRect = device.getScreenInfo().getVideoSize().toRect();
+                    Rect videoRect = getDesiredSize(contentRect, scale);
+
+                    synchronized (imageReaderLock) {
+                        mImageReader = ImageReader.newInstance(videoRect.width(), videoRect.height(), PixelFormat.RGBA_8888, 2);
+                        bImageReaderDisable = false;
+                    }
+                    if (imageAvailableListenerImpl == null) {
+                        if (maxFps > 30){
+                            imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, 30, quality);
+                        }else{
+                            imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, maxFps, quality);
+                        }
+                    }
+                    mImageReader.setOnImageAvailableListener(imageAvailableListenerImpl, mHandler);
+                    Surface surface = mImageReader.getSurface();
+                    setDisplaySurface(display, surface, contentRect, videoRect, 0);
+                    // this lock is used for image cycle. It will not exist unless rotate or video mode
                     synchronized (rotationLock) {
                         try {
                             rotationLock.wait();
                         } catch (InterruptedException e) {
+                            Ln.e("Rotate error " + e);
                         }
                     }
-                } else {
-                    if (!videoMode){
-                        IBinder display = createDisplay();
-                        Rect contentRect = device.getScreenInfo().getVideoRect();
-//                    Rect videoRect = device.getScreenInfo().getVideoSize().toRect();
-                        Rect videoRect = getDesiredSize(contentRect, scale);
+                    synchronized (imageReaderLock) {
+                        if (mImageReader != null) {
+                            bImageReaderDisable = true;
+                            mImageReader.close();
+                        }
+                    }
+                    destroyDisplay(display);
+                    surface.release();
+                    alive = getAlive();
+                }else{
+                    MediaCodec codec = null;
+                    try{
+                        codec = createCodec(null);
+                    }catch (Exception e){
+                        Ln.e("step" + e);
+                    }
 
-                        synchronized (imageReaderLock) {
-                            mImageReader = ImageReader.newInstance(videoRect.width(), videoRect.height(), PixelFormat.RGBA_8888, 2);
-                            bImageReaderDisable = false;
-                        }
-                        if (imageAvailableListenerImpl == null) {
-                            if (maxFps > 30){
-                                imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, 30, quality);
-                            }else{
-                                imageAvailableListenerImpl = new ImageAvailableListenerImpl(mHandler, device, fd, maxFps, quality);
-                            }
-                        }
-                        mImageReader.setOnImageAvailableListener(imageAvailableListenerImpl, mHandler);
-                        Surface surface = mImageReader.getSurface();
-                        setDisplaySurface(display, surface, contentRect, videoRect, 0);
-                        // this lock is used for image cycle. It will not exist unless rotate or video mode
-                        synchronized (rotationLock) {
-                            try {
-                                rotationLock.wait();
-                            } catch (InterruptedException e) {
-                                Ln.e("Rotate error " + e);
-                            }
-                        }
-                        synchronized (imageReaderLock) {
-                            if (mImageReader != null) {
-                                bImageReaderDisable = true;
-                                mImageReader.close();
-                            }
-                        }
-                        destroyDisplay(display);
-                        surface.release();
-                        alive = getAlive();
-                    }else{
-                        MediaCodec codec = null;
-                        try{
-                            codec = createCodec(null);
-                        }catch (Exception e){
-                            Ln.e("step" + e);
-                        }
+                    IBinder display = createDisplay();
+                    Rect contentRect = device.getScreenInfo().getVideoRect();
+                    Rect videoRect = getDesiredSize(contentRect, scale);
+                    setSize(format, videoRect.width(), videoRect.height());
+                    Surface surface = null;
+                    try{
+                        configure(codec, format);
+                        surface = codec.createInputSurface();
+                        setDisplaySurface(display, surface, contentRect, videoRect, mRotation.get());
+                        codec.start();
+                        alive = encode(codec, fd);
+                        // do not call stop() on exception, it would trigger an IllegalStateException
+                        codec.stop();
+                    }catch (IllegalStateException | IllegalArgumentException e) {
+                        Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
 
-                        IBinder display = createDisplay();
-                        Rect contentRect = device.getScreenInfo().getVideoRect();
-                        Rect videoRect = getDesiredSize(contentRect, scale);
-                        setSize(format, videoRect.width(), videoRect.height());
-                        Surface surface = null;
-                        try{
-                            configure(codec, format);
-                            surface = codec.createInputSurface();
-                            setDisplaySurface(display, surface, contentRect, videoRect, mRotation.get());
-                            codec.start();
-                            alive = encode(codec, fd);
-                            // do not call stop() on exception, it would trigger an IllegalStateException
-                            codec.stop();
-                        }catch (IllegalStateException | IllegalArgumentException e) {
-                            Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
-
-                            int newMaxSize = chooseMaxSizeFallback(new Size(videoRect.width(), videoRect.height()) );
-                            if (newMaxSize == 0) {
-                                // Definitively fail
-                                throw e;
-                            }
-                            // Retry with a smaller device size
-                            Ln.i("Retrying with -m" + newMaxSize + "...");
+                        int newMaxSize = chooseMaxSizeFallback(new Size(videoRect.width(), videoRect.height()) );
+                        if (newMaxSize == 0) {
+                            // Definitively fail
+                            throw e;
+                        }
+                        // Retry with a smaller device size
+                        Ln.i("Retrying with -m" + newMaxSize + "...");
 //                        device.setMaxSize(newMaxSize);
-                            alive = true;
-                        }finally {
-                            destroyDisplay(display);
-                            codec.release();
-                            if (surface != null)
-                                surface.release();
-                        }
+                        alive = true;
+                    }finally {
+                        destroyDisplay(display);
+                        codec.release();
+                        if (surface != null)
+                            surface.release();
                     }
                 }
+
             } while (alive);
         } catch (Exception e) {
             e.printStackTrace();
