@@ -67,7 +67,7 @@ public final class Server {
             }
         }
     }
-    private static void scrcpy(Options options) throws IOException {
+    private static void scrcpy(Options options) throws IOException, ConfigurationException {
         MediaCodec codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         AccessibilityNodeInfoDumper dumper = null;
         final Device device = new Device(options);

@@ -13,6 +13,7 @@ import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.IBinder;
+import android.provider.MediaStore;
 import android.view.Surface;
 
 import java.io.FileDescriptor;
@@ -75,6 +76,7 @@ public class ScreenEncoder implements Device.RotationListener {
     private List<CodecOption> codecOptions = CodecOption.parse("");
     private boolean alive = true;
     private boolean firstFrameSent;
+    private int consecutiveErrors;
     private Streamer streamer;
     private String encoderName;
     private boolean downsizeOnError;
@@ -261,17 +263,20 @@ public class ScreenEncoder implements Device.RotationListener {
     }
 
     @SuppressLint("WrongConstant")
-    public void streamScreen(Device device, FileDescriptor fd) throws IOException {
+    public void streamScreen(Device device, FileDescriptor fd) throws IOException,  ConfigurationException {
         device.setRotationListener(this);
         MediaFormat format = createFormat(bitRate, maxFps, codecOptions);
+        Codec codec = streamer.getCodec();
+        MediaCodec mediaCodec = createMediaCodec(codec, encoderName);
+        IBinder display = createDisplay();
+
         boolean alive = false;
         try {
             writeMinicapBanner(device, fd, scale);
             do {
                 writeRotation(fd);
                 if (!videoMode){
-                    IBinder display = createDisplay();
-                    Rect contentRect = device.getScreenInfo().getVideoRect();
+                    Rect contentRect = device.getScreenInfo().getContentRect();
 //                    Rect videoRect = device.getScreenInfo().getVideoSize().toRect();
                     Rect videoRect = getDesiredSize(contentRect, scale);
 
@@ -307,26 +312,26 @@ public class ScreenEncoder implements Device.RotationListener {
                     surface.release();
                     alive = getAlive();
                 }else{
-                    MediaCodec codec = null;
-                    try{
-                        codec = createCodec(null);
-                    }catch (Exception e){
-                        Ln.e("step" + e);
-                    }
-
-                    IBinder display = createDisplay();
-                    Rect contentRect = device.getScreenInfo().getVideoRect();
+                    ScreenInfo screenInfo = device.getScreenInfo();
+                    Rect contentRect = screenInfo.getContentRect();
                     Rect videoRect = getDesiredSize(contentRect, scale);
                     setSize(format, videoRect.width(), videoRect.height());
                     Surface surface = null;
                     try{
-                        configure(codec, format);
-                        surface = codec.createInputSurface();
-                        setDisplaySurface(display, surface, contentRect, videoRect, mRotation.get());
-                        codec.start();
-                        alive = encode(codec, fd);
+                        mediaCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                        surface = mediaCodec.createInputSurface();
+
+                        // does not include the locked video orientation
+                        Rect unlockedVideoRect = screenInfo.getUnlockedVideoSize().toRect();
+                        int videoRotation = screenInfo.getVideoRotation();
+                        int layerStack = device.getLayerStack();
+                        setDisplaySurface(display, surface, videoRotation, contentRect, unlockedVideoRect, layerStack);
+
+                        mediaCodec.start();
+
+                        alive = encode(mediaCodec, streamer);
                         // do not call stop() on exception, it would trigger an IllegalStateException
-                        codec.stop();
+                        mediaCodec.stop();
                     }catch (IllegalStateException | IllegalArgumentException e) {
                         Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
 
@@ -340,8 +345,9 @@ public class ScreenEncoder implements Device.RotationListener {
 //                        device.setMaxSize(newMaxSize);
                         alive = true;
                     }finally {
-                        destroyDisplay(display);
-                        codec.release();
+                        SurfaceControl.destroyDisplay(display);
+                        mediaCodec.release();
+                        device.setRotationListener(null);
                         if (surface != null)
                             surface.release();
                     }
@@ -409,25 +415,39 @@ public class ScreenEncoder implements Device.RotationListener {
         return !eof;
     }
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
-    private static MediaCodec createCodec(String encoderName) throws IOException {
-        if (encoderName != null) {
-            Ln.d("Creating encoder by name: '" + encoderName + "'");
+    private boolean encode(MediaCodec codec, Streamer streamer) throws IOException {
+        boolean eof = false;
+        MediaCodec.BufferInfo bufferInfo = new MediaCodec.BufferInfo();
+
+        while (!consumeRotationChange() && !eof) {
+            int outputBufferId = codec.dequeueOutputBuffer(bufferInfo, -1);
             try {
-                return MediaCodec.createByCodecName(encoderName);
-            } catch (IllegalArgumentException e) {
-                MediaCodecInfo[] encoders = listEncoders();
-                throw new InvalidEncoderException(encoderName, encoders);
+                if (consumeRotationChange()) {
+                    // must restart encoding with new size
+                    break;
+                }
+
+                eof = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0;
+                if (outputBufferId >= 0) {
+                    ByteBuffer codecBuffer = codec.getOutputBuffer(outputBufferId);
+
+                    boolean isConfig = (bufferInfo.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) != 0;
+                    if (!isConfig) {
+                        // If this is not a config packet, then it contains a frame
+                        firstFrameSent = true;
+                        consecutiveErrors = 0;
+                    }
+
+                    streamer.writePacket(codecBuffer, bufferInfo);
+                }
+            } finally {
+                if (outputBufferId >= 0) {
+                    codec.releaseOutputBuffer(outputBufferId, false);
+                }
             }
         }
-        MediaCodec codec = null;
-        try{
-            codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
-        }catch (Exception e){
-            Ln.e("step " + e);
-        }
 
-        Ln.d("Using encoder: '" + codec.getName() + "'");
-        return codec;
+        return !eof;
     }
     @TargetApi(Build.VERSION_CODES.LOLLIPOP)
     private static MediaCodecInfo[] listEncoders() {
@@ -557,7 +577,7 @@ public class ScreenEncoder implements Device.RotationListener {
         final byte quirks = 2;
         int pid = Process.myPid();
 //        Rect contentRect = device.getScreenInfo().getContentRect();
-        Rect contentRect = device.getScreenInfo().getVideoRect();
+        Rect contentRect = device.getScreenInfo().getContentRect();
         Rect videoRect = getDesiredSize(contentRect, scale);
         int realWidth = contentRect.width();
         int realHeight = contentRect.height();
@@ -613,6 +633,17 @@ public class ScreenEncoder implements Device.RotationListener {
         }
     }
 
+    private static void setDisplaySurface(IBinder display, Surface surface, int orientation, Rect deviceRect, Rect displayRect, int layerStack) {
+        SurfaceControl.openTransaction();
+        try {
+            SurfaceControl.setDisplaySurface(display, surface);
+            SurfaceControl.setDisplayProjection(display, orientation, deviceRect, displayRect);
+            SurfaceControl.setDisplayLayerStack(display, layerStack);
+        } finally {
+            SurfaceControl.closeTransaction();
+        }
+    }
+
     private static void destroyDisplay(IBinder display) {
         SurfaceControl.destroyDisplay(display);
     }
@@ -623,5 +654,20 @@ public class ScreenEncoder implements Device.RotationListener {
 
     private synchronized void setAlive(boolean b) {
         alive = b;
+    }
+
+    private static MediaCodec createMediaCodec(Codec codec, String encoderName) throws IOException, ConfigurationException {
+        if (encoderName != null) {
+            Ln.d("Creating encoder by name: '" + encoderName + "'");
+            try {
+                return MediaCodec.createByCodecName(encoderName);
+            } catch (IllegalArgumentException e) {
+                Ln.e("Encoder '" + encoderName + "' for " + codec.getName() + " not found\n" + LogUtils.buildVideoEncoderListMessage());
+                throw new ConfigurationException("Unknown encoder: " + encoderName);
+            }
+        }
+        MediaCodec mediaCodec = MediaCodec.createEncoderByType(codec.getMimeType());
+        Ln.d("Using encoder: '" + mediaCodec.getName() + "'");
+        return mediaCodec;
     }
 }

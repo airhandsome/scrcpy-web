@@ -1,10 +1,12 @@
 package com.genymobile.scrcpy;
 
+import com.genymobile.scrcpy.wrappers.ClipboardManager;
 import com.genymobile.scrcpy.wrappers.InputManager;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 import com.genymobile.scrcpy.wrappers.WindowManager;
 
+import android.content.IOnPrimaryClipChangedListener;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.IBinder;
@@ -32,19 +34,36 @@ public final class Device {
     public interface RotationListener {
         void onRotationChanged(int rotation);
     }
+    /**
+     * Logical display identifier
+     */
+    private final int displayId;
 
+    /**
+     * The surface flinger layer stack associated with this logical display
+     */
+    private final int layerStack;
+    private final boolean supportsInputEvents;
     private ScreenInfo screenInfo;
     private RotationListener rotationListener;
     private ClipboardListener clipboardListener;
     private final AtomicBoolean isSettingClipboard = new AtomicBoolean();
 
-    public Device(Options options) {
-        screenInfo = computeScreenInfo(options.getCrop(), options.getMaxSize());
-        registerRotationWatcher(new IRotationWatcher.Stub() {
+    public Device(Options options) throws ConfigurationException {
+        displayId = options.getDisplayId();
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
+        if (displayInfo == null) {
+            Ln.e("Display " + displayId + " not found\n" + LogUtils.buildDisplayListMessage());
+            throw new ConfigurationException("Unknown display id: " + displayId);
+        }
+        int displayInfoFlags = displayInfo.getFlags();
+        layerStack = displayInfo.getLayerStack();
+        screenInfo = computeScreenInfo(displayInfo.getRotation(),displayInfo.getSize(), options.getCrop(), options.getMaxSize(), options.getLockVideoOrientation());
+        ServiceManager.getWindowManager().registerRotationWatcher(new IRotationWatcher.Stub() {
             @Override
-            public void onRotationChanged(int rotation) throws RemoteException {
+            public void onRotationChanged(int rotation) {
                 synchronized (Device.this) {
-                    screenInfo = screenInfo.withRotation(rotation);
+                    screenInfo = screenInfo.withDeviceRotation(rotation);
 
                     // notify
                     if (rotationListener != null) {
@@ -52,9 +71,46 @@ public final class Device {
                     }
                 }
             }
-        });
-    }
+        }, displayId);
 
+        if (options.getControl() && options.getClipboardAutosync()) {
+            // If control and autosync are enabled, synchronize Android clipboard to the computer automatically
+            ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
+            if (clipboardManager != null) {
+                clipboardManager.addPrimaryClipChangedListener(new IOnPrimaryClipChangedListener.Stub() {
+                    @Override
+                    public void dispatchPrimaryClipChanged() {
+                        if (isSettingClipboard.get()) {
+                            // This is a notification for the change we are currently applying, ignore it
+                            return;
+                        }
+                        synchronized (Device.this) {
+                            if (clipboardListener != null) {
+                                String text = getClipboardText();
+                                if (text != null) {
+                                    clipboardListener.onClipboardTextChanged(text);
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                Ln.w("No clipboard manager, copy-paste between device and computer will not work");
+            }
+        }
+        if ((displayInfoFlags & DisplayInfo.FLAG_SUPPORTS_PROTECTED_BUFFERS) == 0) {
+            Ln.w("Display doesn't have FLAG_SUPPORTS_PROTECTED_BUFFERS flag, mirroring can be restricted");
+        }
+
+        // main display or any display on Android >= Q
+        supportsInputEvents = displayId == 0 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+        if (!supportsInputEvents) {
+            Ln.w("Input events are not supported for secondary displays before Android 10");
+        }
+    }
+    public int getLayerStack() {
+        return layerStack;
+    }
     public interface ClipboardListener {
         void onClipboardTextChanged(String text);
     }
@@ -63,15 +119,15 @@ public final class Device {
         return screenInfo;
     }
 
-    private ScreenInfo computeScreenInfo(Rect crop, int maxSize) {
-        //wait
-        int displayId = 0;
-        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(displayId);
-        boolean rotated = (displayInfo.getRotation() & 1) != 0;
-        Size deviceSize = displayInfo.getSize();
+    public static ScreenInfo computeScreenInfo(int rotation, Size deviceSize, Rect crop, int maxSize, int lockedVideoOrientation) {
+        if (lockedVideoOrientation == Device.LOCK_VIDEO_ORIENTATION_INITIAL) {
+            // The user requested to lock the video orientation to the current orientation
+            lockedVideoOrientation = rotation;
+        }
+
         Rect contentRect = new Rect(0, 0, deviceSize.getWidth(), deviceSize.getHeight());
         if (crop != null) {
-            if (rotated) {
+            if (rotation % 2 != 0) { // 180s preserve dimensions
                 // the crop (provided by the user) is expressed in the natural orientation
                 crop = flipRect(crop);
             }
@@ -83,7 +139,7 @@ public final class Device {
         }
 
         Size videoSize = computeVideoSize(contentRect.width(), contentRect.height(), maxSize);
-        return new ScreenInfo(contentRect, videoSize, rotated);
+        return new ScreenInfo(contentRect, videoSize, rotation, lockedVideoOrientation);
     }
 
     private static String formatCrop(Rect rect) {
@@ -122,20 +178,25 @@ public final class Device {
         // it hides the field on purpose, to read it with a lock
         @SuppressWarnings("checkstyle:HiddenField")
         ScreenInfo screenInfo = getScreenInfo(); // read with synchronization
-        Size videoSize = screenInfo.getVideoSize();
-        Size clientVideoSize = position.getScreenSize();
-        if (!videoSize.equals(clientVideoSize)) {
-            Ln.i("video width: " + videoSize.getWidth() + ", video height: " + videoSize.getHeight());
-            Ln.i("client width: " + clientVideoSize.getWidth() + ", client height: " + clientVideoSize.getHeight());
+
+        // ignore the locked video orientation, the events will apply in coordinates considered in the physical device orientation
+        Size unlockedVideoSize = screenInfo.getUnlockedVideoSize();
+
+        int reverseVideoRotation = screenInfo.getReverseVideoRotation();
+        // reverse the video rotation to apply the events
+        Position devicePosition = position.rotate(reverseVideoRotation);
+
+        Size clientVideoSize = devicePosition.getScreenSize();
+        if (!unlockedVideoSize.equals(clientVideoSize)) {
             // The client sends a click relative to a video with wrong dimensions,
             // the device may have been rotated since the event was generated, so ignore the event
             return null;
         }
         Rect contentRect = screenInfo.getContentRect();
-        Point point = position.getPoint();
-        int scaledX = contentRect.left + point.getX() * contentRect.width() / videoSize.getWidth();
-        int scaledY = contentRect.top + point.getY() * contentRect.height() / videoSize.getHeight();
-        return new Point(scaledX, scaledY);
+        Point point = devicePosition.getPoint();
+        int convertedX = contentRect.left + point.getX() * contentRect.width() / unlockedVideoSize.getWidth();
+        int convertedY = contentRect.top + point.getY() * contentRect.height() / unlockedVideoSize.getHeight();
+        return new Point(convertedX, convertedY);
     }
 
     public static String getDeviceName() {
@@ -148,7 +209,7 @@ public final class Device {
 
 
     public void registerRotationWatcher(IRotationWatcher rotationWatcher) {
-        ServiceManager.getWindowManager().registerRotationWatcher(rotationWatcher);
+        ServiceManager.getWindowManager().registerRotationWatcher(rotationWatcher, 0);
     }
 
     public synchronized void setRotationListener(RotationListener rotationListener) {

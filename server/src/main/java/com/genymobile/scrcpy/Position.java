@@ -44,5 +44,16 @@ public class Position {
     public String toString() {
         return "Position{" + "point=" + point + ", screenSize=" + screenSize + '}';
     }
-
+    public Position rotate(int rotation) {
+        switch (rotation) {
+            case 1:
+                return new Position(new Point(screenSize.getHeight() - point.getY(), point.getX()), screenSize.rotate());
+            case 2:
+                return new Position(new Point(screenSize.getWidth() - point.getX(), screenSize.getHeight() - point.getY()), screenSize);
+            case 3:
+                return new Position(new Point(point.getY(), screenSize.getWidth() - point.getX()), screenSize.rotate());
+            default:
+                return this;
+        }
+    }
 }
