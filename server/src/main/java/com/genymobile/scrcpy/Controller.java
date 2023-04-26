@@ -5,6 +5,7 @@ import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 import android.app.Activity;
 import android.content.pm.ActivityInfo;
+import android.os.Build;
 import android.os.SystemClock;
 import android.util.Log;
 import android.view.InputDevice;
@@ -14,11 +15,16 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 
 import java.io.IOException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 
 public class Controller implements AsyncProcessor{
 
     private static final int DEVICE_ID_VIRTUAL = -1;
+    private static final int DEFAULT_DEVICE_ID = 0;
+    private static final int POINTER_ID_VIRTUAL_MOUSE = -3;
 
+    private static final ScheduledExecutorService EXECUTOR = Executors.newSingleThreadScheduledExecutor();
     private final Device device;
     private final DesktopConnection connection;
     private final DeviceMessageSender sender;
@@ -33,6 +39,8 @@ public class Controller implements AsyncProcessor{
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[PointersState.MAX_POINTERS];
     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[PointersState.MAX_POINTERS];
     private final ServiceManager serviceManager = new ServiceManager();
+
+    private boolean keepPowerModeOff;
     public Controller(Device device, DesktopConnection connection, boolean clipboardAutosync, boolean powerOn) {
         this.device = device;
         this.connection = connection;
@@ -85,7 +93,9 @@ public class Controller implements AsyncProcessor{
         ControlMessage msg = connection.receiveControlMessage();
         switch (msg.getType()) {
             case ControlMessage.TYPE_INJECT_KEYCODE:
-                injectKeycode(msg.getAction(), msg.getKeycode(), msg.getMetaState());
+                if (device.supportsInputEvents()){
+                    injectKeycode(msg.getAction(), msg.getKeycode(), msg.getMetaState());
+                }
                 break;
             case ControlMessage.TYPE_INJECT_TEXT:
                 injectText(msg.getText());
@@ -155,6 +165,10 @@ public class Controller implements AsyncProcessor{
     }
 
     private int injectText(String text) {
+        if (device.injectTextPaste(text)) {
+            // The best method (fastest and UTF-8) worked!
+            return text.length();
+        }
         int successCount = 0;
         for (char c : text.toCharArray()) {
             if (!injectChar(c)) {

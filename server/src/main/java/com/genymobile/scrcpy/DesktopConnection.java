@@ -54,7 +54,6 @@ public final class DesktopConnection implements Closeable {
         LocalSocket audioSocket = null;
         LocalSocket controlSocket = null;
         if (tunnelForward) {
-
             LocalServerSocket videoServerSocket = new LocalServerSocket(VIDEO_SOCKET_NAME);
             LocalServerSocket audioServerSocket = new LocalServerSocket(AUDIO_SOCKET_NAME);
             LocalServerSocket controlServerSocket = new LocalServerSocket(CONTROL_NAME);
@@ -70,6 +69,7 @@ public final class DesktopConnection implements Closeable {
                 }
                 if (audio){
                     try {
+                        Ln.w("audio connect");
                         audioSocket = audioServerSocket.accept();
                     } catch (IOException | RuntimeException e) {
                         audioServerSocket.close();

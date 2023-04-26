@@ -74,10 +74,9 @@ public final class Server {
         boolean tunnelForward = options.isTunnelForward();
         boolean control = options.getControl();
         boolean audio = options.getAudio();
+        audio = false;
         boolean sendDummyByte = options.getSendDummyByte();
-
         Workarounds.prepareMainLooper();
-
         // Workarounds must be applied for Meizu phones:
         //  - <https://github.com/Genymobile/scrcpy/issues/240>
         //  - <https://github.com/Genymobile/scrcpy/issues/365>
@@ -115,6 +114,7 @@ public final class Server {
                  */
             }
             if (audio){
+                Ln.w("set  audio");
                 AudioCodec audioCodec = options.getAudioCodec();
                 Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(),
                         options.getSendFrameMeta());
@@ -159,51 +159,6 @@ public final class Server {
             }
 
         }
-    }
-
-
-    @SuppressWarnings("checkstyle:MagicNumber")
-    private static Options createOptions(String... args) {
-        if (args.length < 1) {
-            throw new IllegalArgumentException("Missing client version");
-        }
-
-        String clientVersion = args[0];
-        Ln.i("VERSION_NAME: " + BuildConfig.VERSION_NAME);
-        if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
-            throw new IllegalArgumentException(
-                    "The server version (" + clientVersion + ") does not match the client " + "(" + BuildConfig.VERSION_NAME + ")");
-        }
-
-        if (args.length != 8) {
-            throw new IllegalArgumentException("Expecting 8 parameters");
-        }
-
-        Options options = new Options();
-
-        int maxSize = Integer.parseInt(args[1]) & ~7; // multiple of 8
-        options.setMaxSize(maxSize);
-
-        int bitRate = Integer.parseInt(args[2]);
-        options.setVideoBitRate(bitRate);
-
-        int maxFps = Integer.parseInt(args[3]);
-        options.setMaxFps(maxFps);
-
-        // use "adb forward" instead of "adb tunnel"? (so the server must listen)
-        boolean tunnelForward = Boolean.parseBoolean(args[4]);
-        options.setTunnelForward(tunnelForward);
-
-        Rect crop = parseCrop(args[5]);
-        options.setCrop(crop);
-
-        boolean sendFrameMeta = Boolean.parseBoolean(args[6]);
-        options.setSendFrameMeta(sendFrameMeta);
-
-        boolean control = Boolean.parseBoolean(args[7]);
-        options.setControl(control);
-
-        return options;
     }
 
     private static Options customOptions(String... args) {
