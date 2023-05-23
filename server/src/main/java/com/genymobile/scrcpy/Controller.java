@@ -80,7 +80,9 @@ public class Controller {
         ControlMessage msg = connection.receiveControlMessage();
         switch (msg.getType()) {
             case ControlMessage.TYPE_INJECT_KEYCODE:
-                injectKeycode(msg.getAction(), msg.getKeycode(), msg.getMetaState());
+                if (device.supportsInputEvents()){
+                    injectKeycode(msg.getAction(), msg.getKeycode(), msg.getMetaState());
+                }
                 break;
             case ControlMessage.TYPE_INJECT_TEXT:
                 injectText(msg.getText());
@@ -150,6 +152,10 @@ public class Controller {
     }
 
     private int injectText(String text) {
+        if (device.injectTextPaste(text)) {
+            // The best method (fastest and UTF-8) worked!
+            return text.length();
+        }
         int successCount = 0;
         for (char c : text.toCharArray()) {
             if (!injectChar(c)) {

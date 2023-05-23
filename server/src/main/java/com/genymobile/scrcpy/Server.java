@@ -34,6 +34,7 @@ public final class Server {
             handler = screenEncoder.getHandler();
             if (options.getControl()) {
                 Controller controller = new Controller(device, connection);
+                device.setClipboardListener(text -> controller.getSender().pushClipboardText(text));
 
                 // asynchronous
                 startController(controller);

@@ -1,15 +1,24 @@
 package com.genymobile.scrcpy;
 
+import com.genymobile.scrcpy.wrappers.ClipboardManager;
+import com.genymobile.scrcpy.wrappers.InputManager;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 import com.genymobile.scrcpy.wrappers.WindowManager;
 
+import android.content.IOnPrimaryClipChangedListener;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.SystemClock;
 import android.view.IRotationWatcher;
+import android.view.InputDevice;
 import android.view.InputEvent;
+import android.view.KeyCharacterMap;
+import android.view.KeyEvent;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class Device {
 
@@ -19,12 +28,13 @@ public final class Device {
     public interface RotationListener {
         void onRotationChanged(int rotation);
     }
-
+    private final AtomicBoolean isSettingClipboard = new AtomicBoolean();
     private final ServiceManager serviceManager = new ServiceManager();
 
     private ScreenInfo screenInfo;
     private RotationListener rotationListener;
-
+    private ClipboardListener clipboardListener;
+    private final boolean supportsInputEvents;
     public Device(Options options) {
         screenInfo = computeScreenInfo(options.getCrop(), options.getMaxSize());
         registerRotationWatcher(new IRotationWatcher.Stub() {
@@ -40,8 +50,41 @@ public final class Device {
                 }
             }
         });
-    }
 
+        if (true) {
+            // If control and autosync are enabled, synchronize Android clipboard to the computer automatically
+            ClipboardManager clipboardManager = new ServiceManager().getClipboardManager();
+            if (clipboardManager != null) {
+                clipboardManager.addPrimaryClipChangedListener(new IOnPrimaryClipChangedListener.Stub() {
+                    @Override
+                    public void dispatchPrimaryClipChanged() {
+                        if (isSettingClipboard.get()) {
+                            // This is a notification for the change we are currently applying, ignore it
+                            return;
+                        }
+                        synchronized (Device.this) {
+                            if (clipboardListener != null) {
+                                String text = getClipboardText();
+                                if (text != null) {
+                                    clipboardListener.onClipboardTextChanged(text);
+                                }
+                            }
+                        }
+                    }
+                });
+            } else {
+                Ln.w("No clipboard manager, copy-paste between device and computer will not work");
+            }
+        }
+
+        supportsInputEvents = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q;
+        if (!supportsInputEvents) {
+            Ln.w("Input events are not supported for secondary displays before Android 10");
+        }
+    }
+    public interface ClipboardListener {
+        void onClipboardTextChanged(String text);
+    }
     public synchronized ScreenInfo getScreenInfo() {
         return screenInfo;
     }
@@ -70,7 +113,9 @@ public final class Device {
     private static String formatCrop(Rect rect) {
         return rect.width() + ":" + rect.height() + ":" + rect.left + ":" + rect.top;
     }
-
+    public synchronized void setClipboardListener(ClipboardListener clipboardListener) {
+        this.clipboardListener = clipboardListener;
+    }
     @SuppressWarnings("checkstyle:MagicNumber")
     private static Size computeVideoSize(int w, int h, int maxSize) {
         // Compute the video size and the padding of the content inside this video.
@@ -124,9 +169,11 @@ public final class Device {
     }
 
     public boolean injectInputEvent(InputEvent inputEvent, int mode) {
-        return serviceManager.getInputManager().injectInputEvent(inputEvent, mode);
+        return new ServiceManager().getInputManager().injectInputEvent(inputEvent, mode);
     }
-
+    public boolean supportsInputEvents() {
+        return supportsInputEvents;
+    }
     public boolean isScreenOn() {
         return serviceManager.getPowerManager().isScreenOn();
     }
@@ -200,5 +247,57 @@ public final class Device {
 
     public int getRotation() {
         return serviceManager.getWindowManager().getRotation();
+    }
+
+    public boolean injectTextPaste(String text) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
+            return false;
+        }
+
+        // On Android >= 7, we can inject UTF-8 text as follow:
+        // - set the clipboard
+        // - inject the PASTE key event
+        // - restore the clipboard
+
+        String clipboardBackup = getClipboardText();
+        isSettingClipboard.set(true);
+
+        setClipboardText(text);
+        boolean ok = injectKeycode(KeyEvent.KEYCODE_PASTE, InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT);
+        setClipboardText(clipboardBackup);
+
+        isSettingClipboard.set(false);
+        return ok;
+    }
+
+    private boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState) {
+        long now = SystemClock.uptimeMillis();
+        KeyEvent event = new KeyEvent(now, now, action, keyCode, repeat, metaState, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
+                InputDevice.SOURCE_KEYBOARD);
+        return injectEvent(event);
+    }
+    public boolean injectKeycode(int keyCode, int mode) {
+        return injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0) && injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0, mode);
+    }
+    private boolean injectKeycode(int keyCode) {
+        return injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0) && injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0);
+    }
+    public boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState, int mode) {
+        long now = SystemClock.uptimeMillis();
+        KeyEvent event = new KeyEvent(now, now, action, keyCode, repeat, metaState, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
+                InputDevice.SOURCE_KEYBOARD);
+        return injectEvent(event, mode);
+    }
+
+    private boolean injectEvent(InputEvent event) {
+        return injectInputEvent(event, InputManager.INJECT_INPUT_EVENT_MODE_ASYNC);
+    }
+
+    public boolean injectEvent(InputEvent inputEvent, int mode) {
+        if (!supportsInputEvents()) {
+            throw new AssertionError("Could not inject input event if !supportsInputEvents()");
+        }
+
+        return new ServiceManager().getInputManager().injectInputEvent(inputEvent, mode);
     }
 }
