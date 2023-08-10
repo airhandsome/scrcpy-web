@@ -4,10 +4,12 @@ import android.net.LocalServerSocket;
 import android.net.LocalSocket;
 import android.net.LocalSocketAddress;
 
+import java.io.BufferedReader;
 import java.io.Closeable;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.channels.SocketChannel;
 
@@ -44,6 +46,45 @@ public final class DesktopConnection implements Closeable {
         return localSocket;
     }
 
+    public static String RunCmd(String cmd){
+        StringBuilder build = new StringBuilder();
+        try{
+            Process process = Runtime.getRuntime().exec(cmd);
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "UTF-8"))) {
+                String line;
+                while ((line = reader.readLine())!= null) {
+                    build.append(line);
+                }
+            }
+            process.waitFor();
+        }catch (Exception e){
+            Ln.e("Execute command line error " + cmd);
+        }
+        return build.toString();
+    }
+
+
+    public static LocalServerSocket SafelyCreateServer(String sockeName) {
+        LocalServerSocket socket = null;
+        for (int i = 0; i < 3; i++){
+            try{
+                socket = new LocalServerSocket(sockeName);
+                return socket;
+            }catch (IOException e){
+                String cmd = "lsof | grep svideo";
+                String res = RunCmd(cmd);
+                if (res.length() > 0){
+                    String[] resArray = res.split("\\s+");
+                    if (resArray.length > 1){
+                        String killCmd = "kill -15 " + resArray[1];
+                        RunCmd(killCmd);
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
     public static DesktopConnection open(Device device, boolean tunnelForward) throws IOException {
         LocalSocket videoSocket = null;
         LocalSocket controlSocket = null;
@@ -53,8 +94,8 @@ public final class DesktopConnection implements Closeable {
 //            localServerSocket.socket().bind(new InetSocketAddress(SOCKET_PORT));
 //            controlServerSocket.socket().bind(new InetSocketAddress(CONTROL_SOCKET_PORT));
 
-            LocalServerSocket localServerSocket = new LocalServerSocket(SOCKET_NAME);
-            LocalServerSocket controlServerSocket = new LocalServerSocket(CONTROL_NAME);
+            LocalServerSocket localServerSocket = SafelyCreateServer(SOCKET_NAME);
+            LocalServerSocket controlServerSocket = SafelyCreateServer(CONTROL_NAME);
             try {
                 videoSocket = localServerSocket.accept();
                 // send one byte so the client may read() to detect a connection error
