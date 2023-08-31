@@ -24,7 +24,6 @@ public final class Server {
     }
 
     private static void scrcpy(Options options) throws IOException {
-        MediaCodec codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC);
         AccessibilityNodeInfoDumper dumper = null;
         final Device device = new Device(options);
         boolean tunnelForward = options.isTunnelForward();
