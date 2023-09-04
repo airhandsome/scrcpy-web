@@ -295,7 +295,8 @@ public final class Device {
 
     public boolean injectEvent(InputEvent inputEvent, int mode) {
         if (!supportsInputEvents()) {
-            throw new AssertionError("Could not inject input event if !supportsInputEvents()");
+            Ln.e("Could not inject input event if !supportsInputEvents()");
+//            throw new AssertionError("Could not inject input event if !supportsInputEvents()");
         }
 
         return new ServiceManager().getInputManager().injectInputEvent(inputEvent, mode);
