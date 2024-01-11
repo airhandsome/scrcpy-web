@@ -43,6 +43,8 @@ import android.os.HandlerThread;
 public class ScreenEncoder implements Device.RotationListener {
     public static boolean reconnect = false;
     public static boolean videoMode = true;
+
+    public static int AndroidVersion = 1;
     private static final int DEFAULT_I_FRAME_INTERVAL = 10; // seconds
     private static final int REPEAT_FRAME_DELAY_US = 100_000; // repeat after 100ms
     private static final int[] MAX_SIZE_FALLBACK = {2560, 1920, 1600, 1280, 1024, 800};
@@ -162,7 +164,7 @@ public class ScreenEncoder implements Device.RotationListener {
             synchronized (imageReaderLock) {
                 try {
                     //change mode to video mode
-                    if (videoMode){
+                    if (videoMode && AndroidVersion != 14){
                         synchronized (rotationLock) {
                             rotationLock.notify();
                         }
@@ -523,7 +525,7 @@ public class ScreenEncoder implements Device.RotationListener {
             desiredHeight &= ~7;
         }
         int rotation = mRotation.get();
-        if (rotation == 1 && videoMode){
+        if (rotation == 1 && videoMode && AndroidVersion != 14){
             int tmp = desiredHeight;
             desiredHeight = desiredWidth;
             desiredWidth = tmp;
@@ -592,7 +594,10 @@ public class ScreenEncoder implements Device.RotationListener {
     }
 
     private static IBinder createDisplay() {
-        boolean secure = Build.VERSION.SDK_INT <= 30;
+        // Since Android 12 (preview), secure displays could not be created with shell permissions anymore.
+        // On Android 12 preview, SDK_INT is still R (not S), but CODENAME is "S".
+        boolean secure = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || (Build.VERSION.SDK_INT == Build.VERSION_CODES.R && !"S".equals(
+                Build.VERSION.CODENAME));
         return SurfaceControl.createDisplay("scrcpy", secure);
     }
 
@@ -600,10 +605,9 @@ public class ScreenEncoder implements Device.RotationListener {
         SurfaceControl.openTransaction();
         try {
             SurfaceControl.setDisplaySurface(display, surface);
-            if (orientation > 0 && videoMode){
+            if (orientation > 0 && videoMode && AndroidVersion != 14){
                 displayRect = new Rect(0, 0, displayRect.height(), displayRect.width());
             }
-//            Ln.i("set size realWidth: " + deviceRect.width() + ", realHeight: " + deviceRect.height() + ", desiredWidth: " + displayRect.width() + ", desiredHeight: " + displayRect.height());
             SurfaceControl.setDisplayProjection(display, orientation, deviceRect, displayRect);
             SurfaceControl.setDisplayLayerStack(display, 0);
         } finally {

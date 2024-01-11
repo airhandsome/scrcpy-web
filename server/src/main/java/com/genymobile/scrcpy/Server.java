@@ -13,6 +13,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.FileDescriptor;
 
 import android.os.Handler;
+import android.util.Log;
 
 public final class Server {
 
@@ -24,6 +25,8 @@ public final class Server {
     }
 
     private static void scrcpy(Options options) throws IOException {
+
+        ScreenEncoder.AndroidVersion = Integer.parseInt(Build.VERSION.RELEASE);
         AccessibilityNodeInfoDumper dumper = null;
         final Device device = new Device(options);
         boolean tunnelForward = options.isTunnelForward();
@@ -138,7 +141,7 @@ public final class Server {
 
     private static Options customOptions(String... args) {
         org.apache.commons.cli.CommandLine commandLine = null;
-        org.apache.commons.cli.CommandLineParser parser = new org.apache.commons.cli.BasicParser();
+        org.apache.commons.cli.CommandLineParser parser = new org.apache.commons.cli.DefaultParser();
         org.apache.commons.cli.Options options = new org.apache.commons.cli.Options();
         options.addOption("Q", true, "JPEG quality (0-100)");
         options.addOption("r", true, "maxFps (0-100)");
@@ -149,6 +152,7 @@ public final class Server {
         options.addOption("D", false, "Dump window hierarchy");
         options.addOption("h", false, "Show help");
         options.addOption("m", true, "choose the stream mode for video or image");
+
         try {
             commandLine = parser.parse(options, args);
         } catch (Exception e) {
