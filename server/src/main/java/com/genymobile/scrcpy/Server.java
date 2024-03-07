@@ -26,7 +26,19 @@ public final class Server {
 
     private static void scrcpy(Options options) throws IOException {
 
-        ScreenEncoder.AndroidVersion = Integer.parseInt(Build.VERSION.RELEASE);
+        try{
+            if (Build.VERSION.RELEASE.contains(".")){
+                String version = Build.VERSION.RELEASE.split(".")[0];
+                ScreenEncoder.AndroidVersion = Integer.parseInt(version);
+            }else{
+                ScreenEncoder.AndroidVersion = Integer.parseInt(Build.VERSION.RELEASE);
+            }
+        }catch (Exception e){
+            Log.e("svideo","parse version error, use default");
+            ScreenEncoder.AndroidVersion = 10;
+        }
+
+
         AccessibilityNodeInfoDumper dumper = null;
         final Device device = new Device(options);
         boolean tunnelForward = options.isTunnelForward();
