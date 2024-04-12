@@ -1,11 +1,5 @@
 package com.genymobile.scrcpy;
 
-import com.genymobile.scrcpy.wrappers.ClipboardManager;
-import com.genymobile.scrcpy.wrappers.InputManager;
-import com.genymobile.scrcpy.wrappers.ServiceManager;
-import com.genymobile.scrcpy.wrappers.SurfaceControl;
-import com.genymobile.scrcpy.wrappers.WindowManager;
-
 import android.content.IOnPrimaryClipChangedListener;
 import android.graphics.Rect;
 import android.os.Build;
@@ -18,6 +12,12 @@ import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 
+import com.genymobile.scrcpy.wrappers.ClipboardManager;
+import com.genymobile.scrcpy.wrappers.InputManager;
+import com.genymobile.scrcpy.wrappers.ServiceManager;
+import com.genymobile.scrcpy.wrappers.SurfaceControl;
+import com.genymobile.scrcpy.wrappers.WindowManager;
+
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public final class Device {
@@ -25,17 +25,26 @@ public final class Device {
     public static final int POWER_MODE_OFF = SurfaceControl.POWER_MODE_OFF;
     public static final int POWER_MODE_NORMAL = SurfaceControl.POWER_MODE_NORMAL;
 
+    public static final int INJECT_MODE_ASYNC = InputManager.INJECT_INPUT_EVENT_MODE_ASYNC;
+    public static final int INJECT_MODE_WAIT_FOR_RESULT = InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_RESULT;
+    public static final int INJECT_MODE_WAIT_FOR_FINISH = InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH;
+
+    public static final int LOCK_VIDEO_ORIENTATION_UNLOCKED = -1;
+    public static final int LOCK_VIDEO_ORIENTATION_INITIAL = -2;
     public interface RotationListener {
         void onRotationChanged(int rotation);
     }
     private final AtomicBoolean isSettingClipboard = new AtomicBoolean();
-    private final ServiceManager serviceManager = new ServiceManager();
-
+    private final int displayId;
     private ScreenInfo screenInfo;
     private RotationListener rotationListener;
     private ClipboardListener clipboardListener;
     private final boolean supportsInputEvents;
+    private FoldListener foldListener;
+    private Size deviceSize;
     public Device(Options options) {
+        displayId = options.getDisplayId();
+
         screenInfo = computeScreenInfo(options.getCrop(), options.getMaxSize());
         registerRotationWatcher(new IRotationWatcher.Stub() {
             @Override
@@ -51,9 +60,10 @@ public final class Device {
             }
         });
 
+
         if (true) {
             // If control and autosync are enabled, synchronize Android clipboard to the computer automatically
-            ClipboardManager clipboardManager = new ServiceManager().getClipboardManager();
+            ClipboardManager clipboardManager = ServiceManager.getClipboardManager();
             if (clipboardManager != null) {
                 clipboardManager.addPrimaryClipChangedListener(new IOnPrimaryClipChangedListener.Stub() {
                     @Override
@@ -90,7 +100,7 @@ public final class Device {
     }
 
     private ScreenInfo computeScreenInfo(Rect crop, int maxSize) {
-        DisplayInfo displayInfo = serviceManager.getDisplayManager().getDisplayInfo();
+        DisplayInfo displayInfo = ServiceManager.getDisplayManager().getDisplayInfo(0);
         boolean rotated = (displayInfo.getRotation() & 1) != 0;
         Size deviceSize = displayInfo.getSize();
         Rect contentRect = new Rect(0, 0, deviceSize.getWidth(), deviceSize.getHeight());
@@ -169,17 +179,17 @@ public final class Device {
     }
 
     public boolean injectInputEvent(InputEvent inputEvent, int mode) {
-        return new ServiceManager().getInputManager().injectInputEvent(inputEvent, mode);
+        return ServiceManager.getInputManager().injectInputEvent(inputEvent, mode);
     }
     public boolean supportsInputEvents() {
         return supportsInputEvents;
     }
     public boolean isScreenOn() {
-        return serviceManager.getPowerManager().isScreenOn();
+        return ServiceManager.getPowerManager().isScreenOn();
     }
 
     public void registerRotationWatcher(IRotationWatcher rotationWatcher) {
-        serviceManager.getWindowManager().registerRotationWatcher(rotationWatcher);
+        ServiceManager.getWindowManager().registerRotationWatcher(rotationWatcher, 0);
     }
 
     public synchronized void setRotationListener(RotationListener rotationListener) {
@@ -187,15 +197,15 @@ public final class Device {
     }
 
     public void expandNotificationPanel() {
-        serviceManager.getStatusBarManager().expandNotificationsPanel();
+        ServiceManager.getStatusBarManager().expandNotificationsPanel();
     }
 
     public void collapsePanels() {
-        serviceManager.getStatusBarManager().collapsePanels();
+        ServiceManager.getStatusBarManager().collapsePanels();
     }
 
     public String getClipboardText() {
-        CharSequence s = serviceManager.getClipboardManager().getText();
+        CharSequence s = ServiceManager.getClipboardManager().getText();
         if (s == null) {
             return null;
         }
@@ -203,7 +213,7 @@ public final class Device {
     }
 
     public void setClipboardText(String text) {
-        serviceManager.getClipboardManager().setText(text);
+        ServiceManager.getClipboardManager().setText(text);
         Ln.i("Device clipboard set");
     }
 
@@ -224,20 +234,20 @@ public final class Device {
      * Disable auto-rotation (if enabled), set the screen rotation and re-enable auto-rotation (if it was enabled).
      */
     public void rotateDevice() {
-        WindowManager wm = serviceManager.getWindowManager();
+        WindowManager wm = ServiceManager.getWindowManager();
 
-        boolean accelerometerRotation = !wm.isRotationFrozen();
+        boolean accelerometerRotation = !wm.isRotationFrozen(0);
 
         int currentRotation = wm.getRotation();
         int newRotation = (currentRotation & 1) ^ 1; // 0->1, 1->0, 2->1, 3->0
         String newRotationString = newRotation == 0 ? "portrait" : "landscape";
 
         Ln.i("Device rotation requested: " + newRotationString);
-        wm.freezeRotation(newRotation);
+        wm.freezeRotation(0, newRotation);
 
         // restore auto-rotate if necessary
         if (accelerometerRotation) {
-            wm.thawRotation();
+            wm.thawRotation(0);
         }
     }
 
@@ -246,7 +256,7 @@ public final class Device {
     }
 
     public int getRotation() {
-        return serviceManager.getWindowManager().getRotation();
+        return ServiceManager.getWindowManager().getRotation();
     }
 
     public boolean injectTextPaste(String text) {
@@ -299,6 +309,12 @@ public final class Device {
 //            throw new AssertionError("Could not inject input event if !supportsInputEvents()");
         }
 
-        return new ServiceManager().getInputManager().injectInputEvent(inputEvent, mode);
+        return ServiceManager.getInputManager().injectInputEvent(inputEvent, mode);
+    }
+    public interface FoldListener {
+        void onFoldChanged(int displayId, boolean folded);
+    }
+    public synchronized void setFoldListener(FoldListener foldlistener) {
+        this.foldListener = foldlistener;
     }
 }

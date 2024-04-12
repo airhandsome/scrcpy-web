@@ -1,17 +1,16 @@
 package com.genymobile.scrcpy;
 
-import com.genymobile.scrcpy.wrappers.InputManager;
-import com.genymobile.scrcpy.wrappers.ServiceManager;
-
-import android.app.Activity;
+import android.app.Service;
 import android.content.pm.ActivityInfo;
 import android.os.SystemClock;
-import android.util.Log;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
+
+import com.genymobile.scrcpy.wrappers.InputManager;
+import com.genymobile.scrcpy.wrappers.ServiceManager;
 
 import java.io.IOException;
 
@@ -29,7 +28,6 @@ public class Controller {
     private final PointersState pointersState = new PointersState();
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[PointersState.MAX_POINTERS];
     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[PointersState.MAX_POINTERS];
-    private final ServiceManager serviceManager = new ServiceManager();
     public Controller(Device device, DesktopConnection connection) {
         this.device = device;
         this.connection = connection;
@@ -123,10 +121,10 @@ public class Controller {
                 ScreenEncoder.videoMode = false;
                 break;
             case ControlMessage.SCREEN_ORIENTATION_LANDSCAPE:
-                serviceManager.getWindowManager().freezeRotation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+                ServiceManager.getWindowManager().freezeRotation(0, ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
                 break;
             case ControlMessage.SCREEN_ORIENTATION_PORTRAIT:
-                serviceManager.getWindowManager().freezeRotation(ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
+                ServiceManager.getWindowManager().freezeRotation(0, ActivityInfo.SCREEN_ORIENTATION_PORTRAIT);
             default:
                 // do nothing
         }

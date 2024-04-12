@@ -31,4 +31,7 @@ public final class DeviceMessageSender {
             connection.sendDeviceMessage(event);
         }
     }
+    public void send(DeviceMessage msg) {
+        clipboardText = msg.getText();
+    }
 }

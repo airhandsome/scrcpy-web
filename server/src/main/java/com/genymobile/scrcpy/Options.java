@@ -10,6 +10,7 @@ public class Options {
     private Rect crop;
     private boolean sendFrameMeta; // send PTS so that the client may record properly
     private boolean control;
+    private int displayId;
 
     //wen add
     private int quality;
@@ -112,5 +113,8 @@ public class Options {
 
     public void setDumpHierarchy(boolean dumpHierarchy) {
         this.dumpHierarchy = dumpHierarchy;
+    }
+    public int getDisplayId() {
+        return displayId;
     }
 }

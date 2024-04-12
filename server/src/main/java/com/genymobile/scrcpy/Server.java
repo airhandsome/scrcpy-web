@@ -66,6 +66,8 @@ public final class Server {
             } catch (IOException e) {
                 Ln.i("exit: " + e.getMessage());
                 //do exit(0)
+            } catch (Exception e) {
+                throw new RuntimeException(e);
             } finally {
                 if (options.getDumpHierarchy() && dumper != null) {
                     dumper.stop();
@@ -325,6 +327,7 @@ public final class Server {
         Ln.i("Options bitrate: " + options.getBitRate() + " (200K-10M)");
         Ln.i("Options projection: " + options.getScale() + " (1080, 720, 480, 360...)");
         Ln.i("Options control only: " + options.getControlOnly() + " (true / false)");
+        Workarounds.apply(false, true);
         scrcpy(options);
     }
 }

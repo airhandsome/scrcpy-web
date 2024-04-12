@@ -2,11 +2,10 @@ package com.genymobile.scrcpy;
 
 import static android.media.MediaFormat.KEY_MAX_FPS_TO_ENCODER;
 
-import com.genymobile.scrcpy.wrappers.SurfaceControl;
-
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.graphics.Rect;
+import android.hardware.display.VirtualDisplay;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
@@ -39,6 +38,9 @@ import java.nio.ByteOrder;
 
 import android.os.Process;
 import android.os.HandlerThread;
+
+import com.genymobile.scrcpy.wrappers.ServiceManager;
+import com.genymobile.scrcpy.wrappers.SurfaceControl;
 
 public class ScreenEncoder implements Device.RotationListener {
     public static boolean reconnect = false;
@@ -77,6 +79,8 @@ public class ScreenEncoder implements Device.RotationListener {
     private final List<CodecOption> codecOptions = CodecOption.parse("");
     private boolean alive = true;
     private boolean firstFrameSent;
+    private IBinder display;
+    private VirtualDisplay virtualDisplay;
 
     public ScreenEncoder(boolean sendFrameMeta, int bitRate, int maxFps, int iFrameInterval) {
         this.sendFrameMeta = sendFrameMeta;
@@ -250,12 +254,22 @@ public class ScreenEncoder implements Device.RotationListener {
     }
 
     @SuppressLint("WrongConstant")
-    public void streamScreen(Device device, FileDescriptor fd) throws IOException {
-        Workarounds.prepareMainLooper();
-        Workarounds.fillAppInfo();
+    public void streamScreen(Device device, FileDescriptor fd) throws Exception {
 
         device.setRotationListener(this);
         MediaFormat format = createFormat(bitRate, maxFps, codecOptions);
+        if (display != null){
+            SurfaceControl.destroyDisplay(display);
+            display = null;
+        }
+
+        if (virtualDisplay != null){
+            virtualDisplay.release();
+            virtualDisplay = null;
+        }
+
+
+
         boolean alive = false;
         try {
             writeMinicapBanner(device, fd, scale);
@@ -270,7 +284,6 @@ public class ScreenEncoder implements Device.RotationListener {
                     }
                 } else {
                     if (!videoMode){
-                        IBinder display = createDisplay();
                         Rect contentRect = device.getScreenInfo().getVideoRect();
 //                    Rect videoRect = device.getScreenInfo().getVideoSize().toRect();
                         Rect videoRect = getDesiredSize(contentRect, scale);
@@ -313,8 +326,7 @@ public class ScreenEncoder implements Device.RotationListener {
                         }catch (Exception e){
                             Ln.e("step" + e);
                         }
-
-                        IBinder display = createDisplay();
+                        Ln.d("enter video mode");
                         Rect contentRect = device.getScreenInfo().getVideoRect();
                         Rect videoRect = getDesiredSize(contentRect, scale);
                         setSize(format, videoRect.width(), videoRect.height());
@@ -322,7 +334,25 @@ public class ScreenEncoder implements Device.RotationListener {
                         try{
                             configure(codec, format);
                             surface = codec.createInputSurface();
-                            setDisplaySurface(display, surface, contentRect, videoRect, mRotation.get());
+                            display = ScreenCapture.createDisplay();
+
+                            try {
+                                display = ScreenCapture.createDisplay();
+                                setDisplaySurface(display, surface, contentRect, videoRect, mRotation.get());
+                                Ln.d("Display: using SurfaceControl API");
+                            } catch (Exception surfaceControlException) {
+                                try {
+                                    virtualDisplay = ServiceManager.getDisplayManager()
+                                            .createVirtualDisplay("scrcpy", videoRect.width(), videoRect.height(), 0, surface);
+                                    Ln.d("Display: using DisplayManager API");
+                                } catch (Exception displayManagerException) {
+                                    Ln.e("Could not create display using SurfaceControl", surfaceControlException);
+                                    Ln.e("Could not create display using DisplayManager", displayManagerException);
+                                    throw new AssertionError("Could not create display");
+                                }
+                            }
+
+
                             codec.start();
                             alive = encode(codec, fd);
                             // do not call stop() on exception, it would trigger an IllegalStateException
@@ -330,7 +360,7 @@ public class ScreenEncoder implements Device.RotationListener {
                         }catch (IllegalStateException | IllegalArgumentException e) {
                             Ln.e("Encoding error: " + e.getClass().getName() + ": " + e.getMessage());
 
-                            int newMaxSize = chooseMaxSizeFallback(new Size(videoRect.width(), videoRect.height()) );
+                            int newMaxSize = chooseMaxSizeFallback(new Size(videoRect.width(), videoRect.height()));
                             if (newMaxSize == 0) {
                                 // Definitively fail
                                 throw e;
@@ -339,6 +369,8 @@ public class ScreenEncoder implements Device.RotationListener {
                             Ln.i("Retrying with -m" + newMaxSize + "...");
 //                        device.setMaxSize(newMaxSize);
                             alive = true;
+                        }catch (Exception e){
+                            Ln.e("get error " + e);
                         }finally {
                             destroyDisplay(display);
                             codec.release();
@@ -369,6 +401,7 @@ public class ScreenEncoder implements Device.RotationListener {
         // No fallback, fail definitively
         return 0;
     }
+
     private static void configure(MediaCodec codec, MediaFormat format) {
         codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
     }
@@ -389,6 +422,7 @@ public class ScreenEncoder implements Device.RotationListener {
                 if (outputBufferId >= 0) {
                     ByteBuffer codecBuffer = codec.getOutputBuffer(outputBufferId);
 
+//                    Ln.d("length is " + codecBuffer.toString().length());
                     if (sendFrameMeta) {
                         writeFrameMeta(fd, bufferInfo, codecBuffer.remaining());
                     }
@@ -591,14 +625,6 @@ public class ScreenEncoder implements Device.RotationListener {
                 + "    quirks: " + quirks + "\n"
                 + "}\n"
         );
-    }
-
-    private static IBinder createDisplay() {
-        // Since Android 12 (preview), secure displays could not be created with shell permissions anymore.
-        // On Android 12 preview, SDK_INT is still R (not S), but CODENAME is "S".
-        boolean secure = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || (Build.VERSION.SDK_INT == Build.VERSION_CODES.R && !"S".equals(
-                Build.VERSION.CODENAME));
-        return SurfaceControl.createDisplay("scrcpy", secure);
     }
 
     private static void setDisplaySurface(IBinder display, Surface surface, Rect deviceRect, Rect displayRect, int orientation) {
