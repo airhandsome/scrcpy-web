@@ -301,6 +301,7 @@ public class ScreenEncoder implements Device.RotationListener {
                         }
                         mImageReader.setOnImageAvailableListener(imageAvailableListenerImpl, mHandler);
                         Surface surface = mImageReader.getSurface();
+                        display = ScreenCapture.createDisplay();
                         setDisplaySurface(display, surface, contentRect, videoRect, 0);
                         // this lock is used for image cycle. It will not exist unless rotate or video mode
                         synchronized (rotationLock) {
