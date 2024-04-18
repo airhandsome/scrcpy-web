@@ -168,7 +168,7 @@ public class ScreenEncoder implements Device.RotationListener {
             synchronized (imageReaderLock) {
                 try {
                     //change mode to video mode
-                    if (videoMode && AndroidVersion != 14){
+                    if (videoMode){
                         synchronized (rotationLock) {
                             rotationLock.notify();
                         }
