@@ -1,12 +1,15 @@
 package com.genymobile.scrcpy;
 
 import android.annotation.TargetApi;
+import android.media.AudioFormat;
 import android.media.MediaCodec;
+import android.media.MediaCodecInfo;
 import android.media.MediaFormat;
 import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
+import android.provider.MediaStore;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -169,7 +172,6 @@ public final class AudioEncoder implements AsyncProcessor {
             // ignore
         }
     }
-
     @TargetApi(Build.VERSION_CODES.M)
     public void encode() throws IOException, ConfigurationException, AudioCaptureForegroundException {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
@@ -178,58 +180,73 @@ public final class AudioEncoder implements AsyncProcessor {
             return;
         }
 
-        MediaCodec mediaCodec = null;
+        final int[] totalBytesRead = {0};
+        final Long[] mPresentationTime = {0L};
+        MediaCodec mediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC);
 
         boolean mediaCodecStarted = false;
         try {
-            Codec codec = streamer.getCodec();
-            mediaCodec = createMediaCodec(codec, encoderName);
-
+//            Codec codec = streamer.getCodec();
+//            mediaCodec = createMediaCodec(codec, encoderName);
+            ADTSUtil.initADTS(SAMPLE_RATE, CHANNELS);
             mediaCodecThread = new HandlerThread("media-codec");
             mediaCodecThread.start();
 
-            MediaFormat format = createFormat(codec.getMimeType(), bitRate, codecOptions);
-            mediaCodec.setCallback(new EncoderCallback(), new Handler(mediaCodecThread.getLooper()));
-            mediaCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-
-            capture.start();
-
-            final MediaCodec mediaCodecRef = mediaCodec;
-            inputThread = new Thread(() -> {
-                try {
-                    inputThread(mediaCodecRef, capture);
-                } catch (IOException | InterruptedException e) {
-                    Ln.e("Audio capture error", e);
-                } finally {
-                    end();
-                }
-            }, "audio-in");
-
-            outputThread = new Thread(() -> {
-                try {
-                    outputThread(mediaCodecRef);
-                } catch (InterruptedException e) {
-                    // this is expected on close
-                } catch (IOException e) {
-                    // Broken pipe is expected on close, because the socket is closed by the client
-                    if (!IO.isBrokenPipe(e)) {
-                        Ln.e("Audio encoding error", e);
+            MediaFormat mediaFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, SAMPLE_RATE, CHANNELS);
+            mediaFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC);
+            mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 196000);
+            mediaFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT);
+            mediaCodec.configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+//            mediaCodec.setCallback(new EncoderCallback(), new Handler(mediaCodecThread.getLooper()));
+            mediaCodec.setCallback(
+                    new MediaCodec.Callback() {
+                @Override
+                public void onInputBufferAvailable(MediaCodec mediaCodec, int i) {
+                    ByteBuffer codecInputBuffer = mediaCodec.getInputBuffer(i);
+                    int capacity = codecInputBuffer.capacity();
+                    byte[] buffer = new byte[capacity];
+                    int readBytes = capture.read(buffer, 0, buffer.length);
+                    if (readBytes > 0) {
+                        codecInputBuffer.put(buffer, 0, readBytes);
+                        mediaCodec.queueInputBuffer(i, 0, readBytes, mPresentationTime[0], 0);
+                        totalBytesRead[0] += readBytes;
+                        mPresentationTime[0] = 1000000L * (totalBytesRead[0] / 2) / SAMPLE_RATE;
                     }
-                } finally {
-                    end();
                 }
-            }, "audio-out");
 
+                @Override
+                public void onOutputBufferAvailable(MediaCodec codec, int outputBufferIndex, MediaCodec.BufferInfo mBufferInfo) {
+                    if (mBufferInfo.flags == MediaCodec.BUFFER_FLAG_CODEC_CONFIG) {
+                        Ln.i("AudioService" + "AAC的配置数据");
+                    } else {
+                        byte[] oneADTSFrameBytes = new byte[7 + mBufferInfo.size];
+                        ADTSUtil.addADTS(oneADTSFrameBytes);
+                        ByteBuffer outputBuffer = codec.getOutputBuffer(outputBufferIndex);
+                        outputBuffer.get(oneADTSFrameBytes, 7, mBufferInfo.size);
+                        try {
+                            streamer.writeRawData(oneADTSFrameBytes, 0, oneADTSFrameBytes.length);
+                        } catch (IOException ex) {
+                            throw new RuntimeException(ex);
+                        }
+                    }
+                    codec.releaseOutputBuffer(outputBufferIndex, false);
+                }
+
+                @Override
+                public void onError(MediaCodec mediaCodec, MediaCodec.CodecException e) {
+                    e.printStackTrace();
+                }
+
+                @Override
+                public void onOutputFormatChanged(MediaCodec mediaCodec,  MediaFormat mediaFormat) {
+
+                }
+            }, new Handler(mediaCodecThread.getLooper()));
+            capture.start();
             mediaCodec.start();
             mediaCodecStarted = true;
-            inputThread.start();
-            outputThread.start();
 
             waitEnded();
-        } catch (ConfigurationException e) {
-            // Notify the error to make scrcpy exit
-            streamer.writeDisableStream(true);
-            throw e;
         } catch (Throwable e) {
             // Notify the client that the audio could not be captured
             streamer.writeDisableStream(false);

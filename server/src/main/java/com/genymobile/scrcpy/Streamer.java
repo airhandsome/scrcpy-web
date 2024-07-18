@@ -115,6 +115,10 @@ public final class Streamer {
         IO.writeFully(fd, buffer);
     }
 
+    public void writeRawData(byte[] buf, int start, int length)throws IOException {
+        IO.writeFully(fd, buf, start, length);
+    }
+
     private static void fixOpusConfigPacket(ByteBuffer buffer) throws IOException {
         // Here is an example of the config packet received for an OPUS stream:
         //
