@@ -77,6 +77,13 @@ public final class Streamer {
 
         IO.writeFully(fd, buffer);
     }
+    public void writeAACBuffer(ByteBuffer codecBuffer, MediaCodec.BufferInfo bufferInfo)throws IOException{
+        byte[] oneADTSFrameBytes = new byte[7 + bufferInfo.size];
+        ADTSUtil.addADTS(oneADTSFrameBytes);
+        ByteBuffer outputBuffer = codecBuffer;
+        outputBuffer.get(oneADTSFrameBytes, 7, bufferInfo.size);
+        IO.writeFully(fd, oneADTSFrameBytes, 0, oneADTSFrameBytes.length);
+    }
 
     public void writePacket(ByteBuffer codecBuffer, MediaCodec.BufferInfo bufferInfo) throws IOException {
         long pts = bufferInfo.presentationTimeUs;
@@ -102,6 +109,10 @@ public final class Streamer {
         headerBuffer.putInt(packetSize);
         headerBuffer.flip();
         IO.writeFully(fd, headerBuffer);
+    }
+
+    public void writeRawData(ByteBuffer buffer) throws IOException {
+        IO.writeFully(fd, buffer);
     }
 
     private static void fixOpusConfigPacket(ByteBuffer buffer) throws IOException {

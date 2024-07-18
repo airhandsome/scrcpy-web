@@ -11,15 +11,18 @@ import java.lang.System;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileDescriptor;
+import java.security.cert.PKIXRevocationChecker;
+import java.util.ArrayList;
+import java.util.List;
 
 import android.os.Handler;
+import android.provider.MediaStore;
 import android.util.Log;
 
 public final class Server {
 
     private static final String SERVER_PATH = "/data/local/tmp/scrcpy-server.jar";
     private static Handler handler;
-
     private Server() {
         // not instantiable
     }
@@ -55,6 +58,13 @@ public final class Server {
                 startDeviceMessageSender(controller.getSender());
             }
 
+            if (options.getAudio()){
+                AsyncProcessor audioRecorder = getAsyncProcessor(options, connection);
+                audioRecorder.start((fatalError -> {
+                    Ln.e("audio error: " + fatalError);
+                }));
+            }
+
             if (options.getDumpHierarchy()) {
                 dumper = new AccessibilityNodeInfoDumper(handler, device, connection);
                 dumper.start();
@@ -78,6 +88,20 @@ public final class Server {
             }
 
         }
+    }
+
+    private static AsyncProcessor getAsyncProcessor(Options options, DesktopConnection connection) {
+        AudioCodec audioCodec = options.getAudioCodec();
+        AudioCapture audioCapture = new AudioCapture(options.getAudioSource());
+        Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
+        AsyncProcessor audioRecorder;
+        if (audioCodec == AudioCodec.RAW) {
+            audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
+        } else {
+            audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options.getAudioBitRate(), options.getAudioCodecOptions(),
+                    options.getAudioEncoder());
+        }
+        return audioRecorder;
     }
 
     private static void startController(final Controller controller) {
@@ -108,51 +132,6 @@ public final class Server {
             }
         }).start();
     }
-
-    @SuppressWarnings("checkstyle:MagicNumber")
-    private static Options createOptions(String... args) {
-        if (args.length < 1) {
-            throw new IllegalArgumentException("Missing client version");
-        }
-
-        String clientVersion = args[0];
-        Ln.i("VERSION_NAME: " + BuildConfig.VERSION_NAME);
-        if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
-            throw new IllegalArgumentException(
-                    "The server version (" + clientVersion + ") does not match the client " + "(" + BuildConfig.VERSION_NAME + ")");
-        }
-
-        if (args.length != 8) {
-            throw new IllegalArgumentException("Expecting 8 parameters");
-        }
-
-        Options options = new Options();
-
-        int maxSize = Integer.parseInt(args[1]) & ~7; // multiple of 8
-        options.setMaxSize(maxSize);
-
-        int bitRate = Integer.parseInt(args[2]);
-        options.setBitRate(bitRate);
-
-        int maxFps = Integer.parseInt(args[3]);
-        options.setMaxFps(maxFps);
-
-        // use "adb forward" instead of "adb tunnel"? (so the server must listen)
-        boolean tunnelForward = Boolean.parseBoolean(args[4]);
-        options.setTunnelForward(tunnelForward);
-
-        Rect crop = parseCrop(args[5]);
-        options.setCrop(crop);
-
-        boolean sendFrameMeta = Boolean.parseBoolean(args[6]);
-        options.setSendFrameMeta(sendFrameMeta);
-
-        boolean control = Boolean.parseBoolean(args[7]);
-        options.setControl(control);
-
-        return options;
-    }
-
     private static Options customOptions(String... args) {
         org.apache.commons.cli.CommandLine commandLine = null;
         org.apache.commons.cli.CommandLineParser parser = new org.apache.commons.cli.DefaultParser();
@@ -166,6 +145,8 @@ public final class Server {
         options.addOption("D", false, "Dump window hierarchy");
         options.addOption("h", false, "Show help");
         options.addOption("m", true, "choose the stream mode for video or image");
+        options.addOption("a", false, "record the audio or not");
+        options.addOption("audio", true, "audio record type");
 
         try {
             commandLine = parser.parse(options, args);
@@ -201,6 +182,7 @@ public final class Server {
         o.setTunnelForward(true);
         o.setCrop(null);
         o.setControl(true);
+        o.setAudio(true);
         // global
         o.setMaxFps(24);
         o.setScale(480);
@@ -211,6 +193,15 @@ public final class Server {
         o.setControlOnly(false);
         // dump
         o.setDumpHierarchy(false);
+        // audio
+//        List of audio encoders:
+//        https://github.com/Genymobile/scrcpy/blob/master/doc/audio.md
+        o.setAudioBitRate(64000);
+        o.setAudioEncoder("c2.android.aac.encoder");
+        o.setAudioCodec(AudioCodec.AAC);
+//        o.setAudioCodec(AudioCodec.valueOf(MediaFormat.MIMETYPE_AUDIO_AAC));
+        o.setAudioSource(AudioSource.OUTPUT);
+
         if (commandLine.hasOption('b')) {
             int i = 0;
             try {
@@ -253,6 +244,36 @@ public final class Server {
         }
         if (commandLine.hasOption('c')) {
             o.setControlOnly(true);
+        }
+        if (commandLine.hasOption('a')){
+            o.setAudio(true);
+        }
+        if (commandLine.hasOption("audio")) {
+            try {
+                String type = commandLine.getOptionValue("audio");
+                switch (type){
+                    case "aac":
+                        o.setAudioEncoder("c2.android.aac.encoder");
+                        o.setAudioCodec(AudioCodec.AAC);
+                        Ln.d("set type to aac");
+                        break;
+                    case "opus":
+                        o.setAudioEncoder("c2.android.opus.encoder");
+                        o.setAudioCodec(AudioCodec.OPUS);
+                        Ln.d("set type to opus");
+                        break;
+                    case "flac":
+                        o.setAudioEncoder("c2.android.flac.encoder");
+                        o.setAudioCodec(AudioCodec.FLAC);
+                        Ln.d("set type to flac");
+                        break;
+                    default:
+                        o.setAudioCodec(AudioCodec.RAW);
+                        Ln.d("set type to raw");
+                }
+
+            } catch (Exception e) {
+            }
         }
         if (commandLine.hasOption('D')) {
             o.setDumpHierarchy(true);
@@ -321,7 +342,7 @@ public final class Server {
         });
 
 //        unlinkSelf();
-//        Options options = createOptions(args);
+//        Options options = Options.parse(args);
         final Options options = customOptions(args);
         Ln.i("Options frame rate: " + options.getMaxFps() + " (1 ~ 10)");
         Ln.i("Options bitrate: " + options.getBitRate() + " (200K-10M)");

@@ -19,25 +19,32 @@ public final class DesktopConnection implements Closeable {
 
     private static final String SOCKET_NAME = "svideo";
     private static final String CONTROL_NAME = "svideo-control";
+    private static final String AUDIO_NAME = "saudio";
     private static final int SOCKET_PORT = 6612;
     private static final int CONTROL_SOCKET_PORT = 6613;
 
     private final LocalSocket videoSocket;
     private final FileDescriptor videoFd;
 
+    private final LocalSocket audioSocket;
+
+    private final FileDescriptor audioFd;
     private final LocalSocket controlSocket;
+
     private final InputStream controlInputStream;
     private final OutputStream controlOutputStream;
 
     private final ControlMessageReader reader = new ControlMessageReader();
     private final DeviceMessageWriter writer = new DeviceMessageWriter();
 
-    private DesktopConnection(LocalSocket videoSocket, LocalSocket controlSocket) throws IOException {
+    private DesktopConnection(LocalSocket videoSocket, LocalSocket controlSocket, LocalSocket audioSocket) throws IOException {
         this.videoSocket = videoSocket;
         this.controlSocket = controlSocket;
+        this.audioSocket = audioSocket;
         controlInputStream = controlSocket.getInputStream();
         controlOutputStream = controlSocket.getOutputStream();
         videoFd = videoSocket.getFileDescriptor();
+        audioFd = audioSocket.getFileDescriptor();
     }
 
     private static LocalSocket connect(String abstractName) throws IOException {
@@ -88,6 +95,7 @@ public final class DesktopConnection implements Closeable {
     public static DesktopConnection open(Device device, boolean tunnelForward) throws IOException {
         LocalSocket videoSocket = null;
         LocalSocket controlSocket = null;
+        LocalSocket audioSocket = null;
         if (tunnelForward) {
 //            ServerSocketChannel localServerSocket = ServerSocketChannel.open();
 //            ServerSocketChannel controlServerSocket = ServerSocketChannel.open();
@@ -96,6 +104,8 @@ public final class DesktopConnection implements Closeable {
 
             LocalServerSocket localServerSocket = SafelyCreateServer(SOCKET_NAME);
             LocalServerSocket controlServerSocket = SafelyCreateServer(CONTROL_NAME);
+            LocalServerSocket audioServerSocket = SafelyCreateServer(AUDIO_NAME);
+
             try {
                 videoSocket = localServerSocket.accept();
                 // send one byte so the client may read() to detect a connection error
@@ -106,6 +116,13 @@ public final class DesktopConnection implements Closeable {
                     videoSocket.close();
                     throw e;
                 }
+                try{
+                    audioSocket = audioServerSocket.accept();
+                }catch (IOException | RuntimeException e){
+                    audioSocket.close();
+                    throw e;
+                }
+
             } finally {
                 localServerSocket.close();
             }
@@ -119,7 +136,7 @@ public final class DesktopConnection implements Closeable {
 //            }
         }
 
-        DesktopConnection connection = new DesktopConnection(videoSocket, controlSocket);
+        DesktopConnection connection = new DesktopConnection(videoSocket, controlSocket, audioSocket);
         Size videoSize = device.getScreenInfo().getVideoSize();
 //        connection.send(Device.getDeviceName(), videoSize.getWidth(), videoSize.getHeight());//wen disable
         return connection;
@@ -153,6 +170,8 @@ public final class DesktopConnection implements Closeable {
     public FileDescriptor getVideoFd() {
         return videoFd;
     }
+
+    public FileDescriptor getAudioFd() {return audioFd;}
 
     public ControlMessage receiveControlMessage() throws IOException {
         ControlMessage msg = reader.next();

@@ -1,5 +1,6 @@
 package com.genymobile.scrcpy;
 
+import android.annotation.SuppressLint;
 import android.util.Xml;
 import android.view.accessibility.AccessibilityNodeInfo;
 
@@ -125,7 +126,7 @@ public class AccessibilityNodeInfoDumper {
             Class<?> IUiAutomationConnection = Class.forName("android.app.IUiAutomationConnection");
             Constructor<?> newUiAutomation = UiAutomation.class.getDeclaredConstructor(Looper.class, IUiAutomationConnection);
             mUiAutomation = (UiAutomation) newUiAutomation.newInstance(mHandlerThread.getLooper(), connection);
-            Method connect = UiAutomation.class.getDeclaredMethod("connect");
+            @SuppressLint("SoonBlockedPrivateApi") Method connect = UiAutomation.class.getDeclaredMethod("connect");
             connect.invoke(mUiAutomation);
             Ln.i("mUiAutomation: " + mUiAutomation);
             if (mUiAutomation != null) {
@@ -142,7 +143,7 @@ public class AccessibilityNodeInfoDumper {
         if (mUiAutomation != null) {
             mUiAutomation.setOnAccessibilityEventListener(null);
             try {
-                Method disconnect = UiAutomation.class.getDeclaredMethod("disconnect");
+                @SuppressLint("SoonBlockedPrivateApi") Method disconnect = UiAutomation.class.getDeclaredMethod("disconnect");
                 disconnect.invoke(mUiAutomation);
             } catch (Exception e) {
                 e.printStackTrace();

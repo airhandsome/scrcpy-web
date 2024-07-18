@@ -143,6 +143,10 @@ public final class AudioCapture {
         }
     }
 
+    public int read(byte[] buf, int start, int length){
+        return recorder.read(buf, start, length);
+    }
+
     @TargetApi(Build.VERSION_CODES.N)
     public int read(ByteBuffer directBuffer, MediaCodec.BufferInfo outBufferInfo) {
         int r = recorder.read(directBuffer, MAX_READ_SIZE);

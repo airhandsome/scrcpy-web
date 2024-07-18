@@ -2,6 +2,8 @@ package com.genymobile.scrcpy;
 
 import android.graphics.Rect;
 
+import java.util.List;
+
 public class Options {
     private int maxSize;
     private int bitRate;
@@ -10,6 +12,7 @@ public class Options {
     private Rect crop;
     private boolean sendFrameMeta; // send PTS so that the client may record properly
     private boolean control;
+    private boolean audio;
     private int displayId;
 
     //wen add
@@ -19,6 +22,12 @@ public class Options {
     private boolean nalu;
     private boolean dumpHierarchy;
 
+    private int audioBitRate = 128000;
+    private String audioEncoder;
+    private AudioCodec audioCodec = AudioCodec.RAW;
+    private AudioSource audioSource = AudioSource.OUTPUT;
+    private boolean sendCodecMeta = true; // write the codec metadata before the stream
+    private List<CodecOption> audioCodecOptions;
     public int getMaxSize() {
         return maxSize;
     }
@@ -31,8 +40,49 @@ public class Options {
         return bitRate;
     }
 
+    public void setAudioBitRate(int bitRate){
+        this.audioBitRate = bitRate;
+    }
+    public int getAudioBitRate() {
+        return audioBitRate;
+    }
     public void setBitRate(int bitRate) {
         this.bitRate = bitRate;
+    }
+    public String getAudioEncoder() {
+        return audioEncoder;
+    }
+    public void setAudioEncoder(String encoder){
+        this.audioEncoder = encoder;
+    }
+
+    public AudioCodec getAudioCodec() {
+        return audioCodec;
+    }
+
+    public void setAudioCodec(AudioCodec codec){
+        this.audioCodec = codec;
+    }
+
+    public AudioSource getAudioSource(){
+        return audioSource;
+    }
+
+    public void setAudioSource(AudioSource audioSource){
+        this.audioSource = audioSource;
+    }
+    public boolean getSendCodecMeta() {
+        return sendCodecMeta;
+    }
+    public void setSendCodecMeta(boolean sendCodecMeta){
+        this.sendCodecMeta = sendCodecMeta;
+    }
+    public List<CodecOption> getAudioCodecOptions() {
+        return audioCodecOptions;
+    }
+
+    public void setAudioCodecOptions(List<CodecOption> audioCodecOptions){
+        this.audioCodecOptions = audioCodecOptions;
     }
 
     public int getMaxFps() {
@@ -75,6 +125,11 @@ public class Options {
         this.control = control;
     }
 
+    public boolean getAudio() {
+        return audio;
+    }
+
+    public void setAudio(boolean audio) { this.audio = audio; }
     public int getQuality() {
         return quality;
     }
@@ -117,4 +172,6 @@ public class Options {
     public int getDisplayId() {
         return displayId;
     }
+
+
 }
