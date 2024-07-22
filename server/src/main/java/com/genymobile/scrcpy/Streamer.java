@@ -116,9 +116,20 @@ public final class Streamer {
     }
 
     public void writeRawData(byte[] buf, int start, int length)throws IOException {
+        byte[] lengthBytes = intToByteArray(length);
+//        Ln.d("length " + lengthBytes.length);
+//        Ln.d("length is " + length);
+        IO.writeFully(fd,lengthBytes,0, lengthBytes.length);
         IO.writeFully(fd, buf, start, length);
     }
-
+    public byte[] intToByteArray(int value) {
+        return new byte[] {
+                (byte)(value >>> 24), // 取int值的高8位
+                (byte)(value >>> 16), // 取int值的次高8位
+                (byte)(value >>> 8),  // 取int值的次低8位
+                (byte)value           // 取int值的低8位
+        };
+    }
     private static void fixOpusConfigPacket(ByteBuffer buffer) throws IOException {
         // Here is an example of the config packet received for an OPUS stream:
         //

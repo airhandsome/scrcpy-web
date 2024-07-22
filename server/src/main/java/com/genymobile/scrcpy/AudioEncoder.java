@@ -217,13 +217,14 @@ public final class AudioEncoder implements AsyncProcessor {
                 @Override
                 public void onOutputBufferAvailable(MediaCodec codec, int outputBufferIndex, MediaCodec.BufferInfo mBufferInfo) {
                     if (mBufferInfo.flags == MediaCodec.BUFFER_FLAG_CODEC_CONFIG) {
-                        Ln.i("AudioService" + "AAC的配置数据");
+                        Ln.i("AudioService config data");
                     } else {
                         byte[] oneADTSFrameBytes = new byte[7 + mBufferInfo.size];
                         ADTSUtil.addADTS(oneADTSFrameBytes);
                         ByteBuffer outputBuffer = codec.getOutputBuffer(outputBufferIndex);
                         outputBuffer.get(oneADTSFrameBytes, 7, mBufferInfo.size);
                         try {
+
                             streamer.writeRawData(oneADTSFrameBytes, 0, oneADTSFrameBytes.length);
                         } catch (IOException ex) {
                             throw new RuntimeException(ex);

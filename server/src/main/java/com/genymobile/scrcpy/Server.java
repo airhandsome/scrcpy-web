@@ -281,12 +281,12 @@ public final class Server {
         if (commandLine.hasOption('m')){
             try{
                 String mode = commandLine.getOptionValue('m');
-                Ln.e("mode:" + mode);
+                Ln.d("mode:" + mode);
 
                 if (mode.equals("image")){
                     ScreenEncoder.videoMode = false;
                 }
-                Ln.e("videoMode:" + ScreenEncoder.videoMode);
+                Ln.d("videoMode:" + ScreenEncoder.videoMode);
             }catch (Exception e){
             }
         }

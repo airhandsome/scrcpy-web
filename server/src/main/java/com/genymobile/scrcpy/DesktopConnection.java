@@ -110,21 +110,20 @@ public final class DesktopConnection implements Closeable {
                 videoSocket = localServerSocket.accept();
                 // send one byte so the client may read() to detect a connection error
 //                videoSocket.getOutputStream().write(0);//wen disable
-                try {
-                    controlSocket = controlServerSocket.accept();
-                } catch (IOException | RuntimeException e) {
-                    videoSocket.close();
-                    throw e;
-                }
-                try{
-                    audioSocket = audioServerSocket.accept();
-                }catch (IOException | RuntimeException e){
-                    audioSocket.close();
-                    throw e;
-                }
-
             } finally {
                 localServerSocket.close();
+            }
+            try {
+                controlSocket = controlServerSocket.accept();
+            } catch (IOException | RuntimeException e) {
+                controlServerSocket.close();
+                throw e;
+            }
+            try{
+                audioSocket = audioServerSocket.accept();
+            }catch (IOException | RuntimeException e){
+                audioServerSocket.close();
+                throw e;
             }
         } else {
 //            videoSocket = connect(SOCKET_NAME);
