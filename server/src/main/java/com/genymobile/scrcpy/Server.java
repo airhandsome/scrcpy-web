@@ -1,138 +1,264 @@
 package com.genymobile.scrcpy;
 
-import android.graphics.Rect;
-import android.media.MediaCodec;
-import android.media.MediaFormat;
+import com.genymobile.scrcpy.audio.AudioCapture;
+import com.genymobile.scrcpy.audio.AudioCodec;
+import com.genymobile.scrcpy.audio.AudioDirectCapture;
+import com.genymobile.scrcpy.audio.AudioEncoder;
+import com.genymobile.scrcpy.audio.AudioPlaybackCapture;
+import com.genymobile.scrcpy.audio.AudioRawRecorder;
+import com.genymobile.scrcpy.audio.AudioSource;
+import com.genymobile.scrcpy.control.ControlChannel;
+import com.genymobile.scrcpy.control.Controller;
+import com.genymobile.scrcpy.control.DeviceMessage;
+import com.genymobile.scrcpy.device.ConfigurationException;
+import com.genymobile.scrcpy.device.DesktopConnection;
+import com.genymobile.scrcpy.device.Device;
+import com.genymobile.scrcpy.device.Streamer;
+import com.genymobile.scrcpy.util.Ln;
+import com.genymobile.scrcpy.util.LogUtils;
+import com.genymobile.scrcpy.util.Settings;
+import com.genymobile.scrcpy.util.SettingsException;
+import com.genymobile.scrcpy.video.CameraCapture;
+import com.genymobile.scrcpy.video.ScreenCapture;
+import com.genymobile.scrcpy.video.SurfaceCapture;
+import com.genymobile.scrcpy.video.SurfaceEncoder;
+import com.genymobile.scrcpy.video.VideoSource;
+
+import android.graphics.Path;
+import android.os.BatteryManager;
 import android.os.Build;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.System;
-
-import java.io.ByteArrayOutputStream;
-import java.io.FileDescriptor;
-import java.security.cert.PKIXRevocationChecker;
 import java.util.ArrayList;
 import java.util.List;
-
-import android.os.Handler;
-import android.provider.MediaStore;
-import android.util.Log;
+import java.util.concurrent.ExecutionException;
 
 public final class Server {
 
-    private static final String SERVER_PATH = "/data/local/tmp/scrcpy-server.jar";
-    private static Handler handler;
+    public static final String SERVER_PATH;
+
+    static {
+        String[] classPaths = System.getProperty("java.class.path").split(File.pathSeparator);
+        // By convention, scrcpy is always executed with the absolute path of scrcpy-server.jar as the first item in the classpath
+        SERVER_PATH = classPaths[0];
+    }
+
+    private static class Completion {
+        private int running;
+        private boolean fatalError;
+
+        Completion(int running) {
+            this.running = running;
+        }
+
+        synchronized void addCompleted(boolean fatalError) {
+            --running;
+            if (fatalError) {
+                this.fatalError = true;
+            }
+            if (running == 0 || this.fatalError) {
+                notify();
+            }
+        }
+
+        synchronized void await() {
+            try {
+                while (running > 0 && !fatalError) {
+                    wait();
+                }
+            } catch (InterruptedException e) {
+                // ignore
+            }
+        }
+    }
+
     private Server() {
         // not instantiable
     }
 
-    private static void scrcpy(Options options) throws IOException {
+    private static void initAndCleanUp(Options options, CleanUp cleanUp) {
+        // This method is called from its own thread, so it may only configure cleanup actions which are NOT dynamic (i.e. they are configured once
+        // and for all, they cannot be changed from another thread)
 
-        try{
-            if (Build.VERSION.RELEASE.contains(".")){
-                String version = Build.VERSION.RELEASE.split(".")[0];
-                ScreenEncoder.AndroidVersion = Integer.parseInt(version);
-            }else{
-                ScreenEncoder.AndroidVersion = Integer.parseInt(Build.VERSION.RELEASE);
+        if (options.getShowTouches()) {
+            try {
+                String oldValue = Settings.getAndPutValue(Settings.TABLE_SYSTEM, "show_touches", "1");
+                // If "show touches" was disabled, it must be disabled back on clean up
+                if (!"1".equals(oldValue)) {
+                    if (!cleanUp.setDisableShowTouches(true)) {
+                        Ln.e("Could not disable show touch on exit");
+                    }
+                }
+            } catch (SettingsException e) {
+                Ln.e("Could not change \"show_touches\"", e);
             }
-        }catch (Exception e){
-            Log.e("svideo","parse version error, use default");
-            ScreenEncoder.AndroidVersion = 10;
         }
 
+        if (options.getStayAwake()) {
+            int stayOn = BatteryManager.BATTERY_PLUGGED_AC | BatteryManager.BATTERY_PLUGGED_USB | BatteryManager.BATTERY_PLUGGED_WIRELESS;
+            try {
+                String oldValue = Settings.getAndPutValue(Settings.TABLE_GLOBAL, "stay_on_while_plugged_in", String.valueOf(stayOn));
+                try {
+                    int restoreStayOn = Integer.parseInt(oldValue);
+                    if (restoreStayOn != stayOn) {
+                        // Restore only if the current value is different
+                        if (!cleanUp.setRestoreStayOn(restoreStayOn)) {
+                            Ln.e("Could not restore stay on on exit");
+                        }
+                    }
+                } catch (NumberFormatException e) {
+                    // ignore
+                }
+            } catch (SettingsException e) {
+                Ln.e("Could not change \"stay_on_while_plugged_in\"", e);
+            }
+        }
 
-        AccessibilityNodeInfoDumper dumper = null;
-        final Device device = new Device(options);
+        if (options.getPowerOffScreenOnClose()) {
+            if (!cleanUp.setPowerOffScreen(true)) {
+                Ln.e("Could not power off screen on exit");
+            }
+        }
+    }
+
+    private static void scrcpy(Options options) throws IOException, ConfigurationException, ExecutionException, InterruptedException {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S && options.getVideoSource() == VideoSource.CAMERA) {
+            Ln.e("Camera mirroring is not supported before Android 12");
+            throw new ConfigurationException("Camera mirroring is not supported");
+        }
+
+        CleanUp cleanUp = null;
+        Thread initThread = null;
+
+//        if (options.getCleanup()) {
+//            cleanUp = CleanUp.configure(options.getDisplayId());
+//            initThread = startInitThread(options, cleanUp);
+//        }
+
+        int scid = options.getScid();
         boolean tunnelForward = options.isTunnelForward();
+        boolean control = options.getControl();
+        boolean video = options.getVideo();
+        boolean audio = options.getAudio();
+        boolean sendDummyByte = options.getSendDummyByte();
+        boolean camera = video && options.getVideoSource() == VideoSource.CAMERA;
 
-        try (DesktopConnection connection = DesktopConnection.open(device, tunnelForward)) {
-            ScreenEncoder screenEncoder = new ScreenEncoder(options, device);
-            handler = screenEncoder.getHandler();
-            if (options.getControl()) {
-                Controller controller = new Controller(device, connection);
-                device.setClipboardListener(text -> controller.getSender().pushClipboardText(text));
+        final Device device = camera ? null : new Device(options);
 
-                // asynchronous
-                startController(controller);
-                startDeviceMessageSender(controller.getSender());
+        Workarounds.apply();
+
+        List<AsyncProcessor> asyncProcessors = new ArrayList<>();
+
+        DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte);
+        try {
+            if (options.getSendDeviceMeta()) {
+                connection.sendDeviceMeta(Device.getDeviceName());
             }
 
-            if (options.getAudio()){
-                AsyncProcessor audioRecorder = getAsyncProcessor(options, connection);
-                audioRecorder.start((fatalError -> {
-                    Ln.e("audio error: " + fatalError);
-                }));
+            if (control) {
+                ControlChannel controlChannel = connection.getControlChannel();
+                Controller controller = new Controller(device, controlChannel, cleanUp, options.getClipboardAutosync(), options.getPowerOn());
+                device.setClipboardListener(text -> {
+                    DeviceMessage msg = DeviceMessage.createClipboard(text);
+                    controller.getSender().send(msg);
+                });
+                asyncProcessors.add(controller);
             }
 
-            if (options.getDumpHierarchy()) {
-                dumper = new AccessibilityNodeInfoDumper(handler, device, connection);
-                dumper.start();
+            if (audio) {
+                AudioCodec audioCodec = options.getAudioCodec();
+                AudioSource audioSource = options.getAudioSource();
+                AudioCapture audioCapture;
+                if (audioSource.isDirect()) {
+                    audioCapture = new AudioDirectCapture(audioSource);
+                } else {
+                    audioCapture = new AudioPlaybackCapture(options.getAudioDup());
+                }
+
+                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
+                AsyncProcessor audioRecorder;
+                if (audioCodec == AudioCodec.RAW) {
+                    audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
+                } else {
+                    audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options.getAudioBitRate(), options.getAudioCodecOptions(),
+                            options.getAudioEncoder());
+                }
+                asyncProcessors.add(audioRecorder);
             }
+
+            if (video) {
+                Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
+                        options.getSendFrameMeta());
+                SurfaceCapture surfaceCapture;
+                if (options.getVideoSource() == VideoSource.DISPLAY) {
+                    surfaceCapture = new ScreenCapture(device);
+                } else {
+                    surfaceCapture = new CameraCapture(options.getCameraId(), options.getCameraFacing(), options.getCameraSize(),
+                            options.getMaxSize(), options.getCameraAspectRatio(), options.getCameraFps(), options.getCameraHighSpeed());
+                }
+                SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, videoStreamer, options.getVideoBitRate(), options.getMaxFps(),
+                        options.getVideoCodecOptions(), options.getVideoEncoder(), options.getDownsizeOnError());
+                asyncProcessors.add(surfaceEncoder);
+            }
+
+            Completion completion = new Completion(asyncProcessors.size());
+            for (AsyncProcessor asyncProcessor : asyncProcessors) {
+                asyncProcessor.start((fatalError) -> {
+                    completion.addCompleted(fatalError);
+                });
+            }
+
+            completion.await();
+        } finally {
+            if (initThread != null) {
+                initThread.interrupt();
+            }
+            for (AsyncProcessor asyncProcessor : asyncProcessors) {
+                asyncProcessor.stop();
+            }
+
+            Ln.d("connection shutdown");
+            connection.shutdown();
 
             try {
-                // synchronous
-                screenEncoder.streamScreen(device, connection.getVideoFd());
-            } catch (IOException e) {
-                Ln.i("exit: " + e.getMessage());
-                //do exit(0)
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            } finally {
-                if (options.getDumpHierarchy() && dumper != null) {
-                    dumper.stop();
+                if (initThread != null) {
+                    initThread.join();
                 }
-                // this is expected on close
-                Ln.d("Screen streaming stopped");
-                System.exit(0);
+                for (AsyncProcessor asyncProcessor : asyncProcessors) {
+                    asyncProcessor.join();
+                }
+            } catch (InterruptedException e) {
+                // ignore
             }
-
+            Ln.d("connection close");
+            connection.close();
         }
     }
 
-    private static AsyncProcessor getAsyncProcessor(Options options, DesktopConnection connection) {
-        AudioCodec audioCodec = options.getAudioCodec();
-        AudioCapture audioCapture = new AudioCapture(options.getAudioSource());
-        Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
-        AsyncProcessor audioRecorder;
-        if (audioCodec == AudioCodec.RAW) {
-            audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
-        } else {
-            audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options.getAudioBitRate(), options.getAudioCodecOptions(),
-                    options.getAudioEncoder());
+    private static Thread startInitThread(final Options options, final CleanUp cleanUp) {
+        Thread thread = new Thread(() -> initAndCleanUp(options, cleanUp), "init-cleanup");
+        thread.start();
+        return thread;
+    }
+
+    public static void main(String... args) {
+        int status = 0;
+        try {
+
+            String[] newArgs = fakeArgs(args);
+            internalMain(newArgs);
+        } catch (Throwable t) {
+            Ln.e(t.getMessage(), t);
+            status = 1;
+        } finally {
+            // By default, the Java process exits when all non-daemon threads are terminated.
+            // The Android SDK might start some non-daemon threads internally, preventing the scrcpy server to exit.
+            // So force the process to exit explicitly.
+            System.exit(status);
         }
-        return audioRecorder;
     }
-
-    private static void startController(final Controller controller) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    controller.control();
-                } catch (IOException e) {
-                    // this is expected on close
-                    Ln.d("Controller stopped");
-                    Common.stopScrcpy(handler, "control");
-                }
-            }
-        }).start();
-    }
-
-    private static void startDeviceMessageSender(final DeviceMessageSender sender) {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    sender.loop();
-                } catch (IOException | InterruptedException e) {
-                    // this is expected on close
-                    Ln.d("Device message sender stopped");
-                }
-            }
-        }).start();
-    }
-    private static Options customOptions(String... args) {
+    public static String[] fakeArgs(String... args){
         org.apache.commons.cli.CommandLine commandLine = null;
         org.apache.commons.cli.CommandLineParser parser = new org.apache.commons.cli.DefaultParser();
         org.apache.commons.cli.Options options = new org.apache.commons.cli.Options();
@@ -177,31 +303,8 @@ public final class Server {
             System.out.println(System.getProperty("java.library.path"));
             System.exit(0);
         }
-        Options o = new Options();
-        o.setMaxSize(0);
-        o.setTunnelForward(true);
-        o.setCrop(null);
-        o.setControl(true);
-        o.setAudio(true);
-        // global
-        o.setMaxFps(24);
-        o.setScale(480);
-        o.setBitRate(3000000);
-        o.setSendFrameMeta(true);
-        o.setQuality(60);
-        // control
-        o.setControlOnly(false);
-        // dump
-        o.setDumpHierarchy(false);
-        // audio
-//        List of audio encoders:
-//        https://github.com/Genymobile/scrcpy/blob/master/doc/audio.md
-        o.setAudioBitRate(64000);
-        o.setAudioEncoder("c2.android.aac.encoder");
-        o.setAudioCodec(AudioCodec.AAC);
-//        o.setAudioCodec(AudioCodec.valueOf(MediaFormat.MIMETYPE_AUDIO_AAC));
-        o.setAudioSource(AudioSource.OUTPUT);
-
+        List<String> newArgs = new ArrayList<String>();
+        newArgs.add(BuildConfig.VERSION_NAME);
         if (commandLine.hasOption('b')) {
             int i = 0;
             try {
@@ -209,17 +312,17 @@ public final class Server {
             } catch (Exception e) {
             }
             if (i > 200 && i <= 10000) {
-                o.setBitRate(i * 1000);
+                newArgs.add("video_bit_rate=" + i * 1000);
             }
         }
         if (commandLine.hasOption('Q')) {
-            int i = 0;
+            int i = 50;
             try {
                 i = Integer.parseInt(commandLine.getOptionValue('Q'));
             } catch (Exception e) {
             }
-            if (i > 0 && i <= 100) {
-                o.setQuality(i);
+            if (i > 50 && i <= 100) {
+                newArgs.add("image_quality=" + i);
             }
         }
         if (commandLine.hasOption('r')) {
@@ -229,7 +332,7 @@ public final class Server {
             } catch (Exception e) {
             }
             if (i > 0 && i <= 100) {
-                o.setMaxFps(i);
+                newArgs.add("max_fps=" + i);
             }
         }
         if (commandLine.hasOption('P')) {
@@ -238,45 +341,38 @@ public final class Server {
                 i = Integer.parseInt(commandLine.getOptionValue('P'));
             } catch (Exception e) {
             }
-            if (i > 0) {
-                o.setScale(i);
-            }
+            int maxSize = i / 1080 * 1920 / 8;
+            newArgs.add("max_size=" + maxSize);
         }
         if (commandLine.hasOption('c')) {
-            o.setControlOnly(true);
+            newArgs.add("control=true");
         }
         if (commandLine.hasOption('a')){
-            o.setAudio(true);
+            newArgs.add("audio=true");
         }
         if (commandLine.hasOption("audio")) {
             try {
                 String type = commandLine.getOptionValue("audio");
                 switch (type){
                     case "aac":
-                        o.setAudioEncoder("c2.android.aac.encoder");
-                        o.setAudioCodec(AudioCodec.AAC);
+                        newArgs.add("audio_codec=c2.android.aac.encoder");
                         Ln.d("set type to aac");
                         break;
                     case "opus":
-                        o.setAudioEncoder("c2.android.opus.encoder");
-                        o.setAudioCodec(AudioCodec.OPUS);
+                        newArgs.add("audio_codec=c2.android.opus.encoder");
                         Ln.d("set type to opus");
                         break;
                     case "flac":
-                        o.setAudioEncoder("c2.android.flac.encoder");
-                        o.setAudioCodec(AudioCodec.FLAC);
+                        newArgs.add("audio_codec=c2.android.flac.encoder");
                         Ln.d("set type to flac");
                         break;
                     default:
-                        o.setAudioCodec(AudioCodec.RAW);
+                        newArgs.add("raw_stream");
                         Ln.d("set type to raw");
                 }
 
             } catch (Exception e) {
             }
-        }
-        if (commandLine.hasOption('D')) {
-            o.setDumpHierarchy(true);
         }
         if (commandLine.hasOption('m')){
             try{
@@ -284,71 +380,50 @@ public final class Server {
                 Ln.d("mode:" + mode);
 
                 if (mode.equals("image")){
-                    ScreenEncoder.videoMode = false;
+                    newArgs.add("video_mode=false");
                 }
-                Ln.d("videoMode:" + ScreenEncoder.videoMode);
             }catch (Exception e){
             }
         }
-        return o;
+        return newArgs.toArray(new String[0]);
     }
 
-    @SuppressWarnings("checkstyle:MagicNumber")
-    private static Rect parseCrop(String crop) {
-        if ("-".equals(crop)) {
-            return null;
-        }
-        // input format: "width:height:x:y"
-        String[] tokens = crop.split(":");
-        if (tokens.length != 4) {
-            throw new IllegalArgumentException("Crop must contains 4 values separated by colons: \"" + crop + "\"");
-        }
-        int width = Integer.parseInt(tokens[0]);
-        int height = Integer.parseInt(tokens[1]);
-        int x = Integer.parseInt(tokens[2]);
-        int y = Integer.parseInt(tokens[3]);
-        return new Rect(x, y, x + width, y + height);
-    }
-
-    private static void unlinkSelf() {
-        try {
-            new File(SERVER_PATH).delete();
-        } catch (Exception e) {
-            Ln.e("Could not unlink server", e);
-        }
-    }
-
-    @SuppressWarnings("checkstyle:MagicNumber")
-    private static void suggestFix(Throwable e) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-//            if (e instanceof MediaCodec.CodecException) {//api level 21
-//                MediaCodec.CodecException mce = (MediaCodec.CodecException) e;
-//                if (mce.getErrorCode() == 0xfffffc0e) {
-//                    Ln.e("The hardware encoder is not able to encode at the given definition.");
-//                    Ln.e("Try with a lower definition:");
-//                    Ln.e("    scrcpy -m 1024");
-//                }
-//            }
-        }
-    }
-
-    public static void main(String... args) throws Exception {
-        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
-            @Override
-            public void uncaughtException(Thread t, Throwable e) {
-                Ln.e("Exception on thread " + t, e);
-                suggestFix(e);
-            }
+    private static void internalMain(String... args) throws Exception {
+        Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
+            Ln.e("Exception on thread " + t, e);
         });
 
-//        unlinkSelf();
-//        Options options = Options.parse(args);
-        final Options options = customOptions(args);
-        Ln.i("Options frame rate: " + options.getMaxFps() + " (1 ~ 10)");
-        Ln.i("Options bitrate: " + options.getBitRate() + " (200K-10M)");
-        Ln.i("Options projection: " + options.getScale() + " (1080, 720, 480, 360...)");
-        Ln.i("Options control only: " + options.getControlOnly() + " (true / false)");
-        Workarounds.apply(false, true);
-        scrcpy(options);
+        Options options = Options.parse(args);
+
+        Ln.disableSystemStreams();
+        Ln.initLogLevel(options.getLogLevel());
+
+        Ln.i("Device: [" + Build.MANUFACTURER + "] " + Build.BRAND + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")");
+
+        if (options.getList()) {
+//            if (options.getCleanup()) {
+//                CleanUp.unlinkSelf();
+//            }
+
+            if (options.getListEncoders()) {
+                Ln.i(LogUtils.buildVideoEncoderListMessage());
+                Ln.i(LogUtils.buildAudioEncoderListMessage());
+            }
+            if (options.getListDisplays()) {
+                Ln.i(LogUtils.buildDisplayListMessage());
+            }
+            if (options.getListCameras() || options.getListCameraSizes()) {
+                Workarounds.apply();
+                Ln.i(LogUtils.buildCameraListMessage(options.getListCameraSizes()));
+            }
+            // Just print the requested data, do not mirror
+            return;
+        }
+
+        try {
+            scrcpy(options);
+        } catch (ConfigurationException e) {
+            // Do not print stack trace, a user-friendly error-message has already been logged
+        }
     }
 }

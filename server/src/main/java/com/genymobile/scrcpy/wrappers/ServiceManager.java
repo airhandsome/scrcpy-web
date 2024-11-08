@@ -100,10 +100,7 @@ public final class ServiceManager {
     public static CameraManager getCameraManager() {
         if (cameraManager == null) {
             try {
-                Constructor<CameraManager> ctor = null;
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP) {
-                    ctor = CameraManager.class.getDeclaredConstructor(Context.class);
-                }
+                Constructor<CameraManager> ctor = CameraManager.class.getDeclaredConstructor(Context.class);
                 cameraManager = ctor.newInstance(FakeContext.get());
             } catch (Exception e) {
                 throw new AssertionError(e);

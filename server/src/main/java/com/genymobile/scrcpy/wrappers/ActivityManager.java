@@ -10,7 +10,7 @@ import android.os.IBinder;
 import android.os.IInterface;
 
 import com.genymobile.scrcpy.FakeContext;
-import com.genymobile.scrcpy.Ln;
+import com.genymobile.scrcpy.util.Ln;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;

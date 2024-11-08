@@ -1,11 +1,11 @@
 package com.genymobile.scrcpy.wrappers;
 
+import com.genymobile.scrcpy.util.Ln;
+
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.os.Build;
 import android.os.IBinder;
-
-import com.genymobile.scrcpy.Ln;
 
 import java.lang.reflect.Method;
 
