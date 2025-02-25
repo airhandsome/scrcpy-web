@@ -108,7 +108,7 @@ public class ScreenEncoder implements Device.RotationListener {
         mHandler = new Handler(mHandlerThread.getLooper()) {
             @Override
             public void handleMessage(Message msg) {
-                Ln.i("hander message: " + msg);
+                Ln.i("handler message: " + msg);
                 if (msg.what == 1) {//exit
                     setAlive(false);
                     synchronized (rotationLock) {
@@ -324,9 +324,13 @@ public class ScreenEncoder implements Device.RotationListener {
                             mImageReader.close();
                         }
                     }
-                    destroyDisplay(display);
+                    Ln.d("Sync image Reader Lock");
+                    if (display != null){
+                        destroyDisplay(display);
+                    }
                     surface.release();
                     alive = getAlive();
+                    Ln.d("try to exit image mode " + alive);
                 }else
                 {
                     MediaCodec codec = null;
@@ -394,15 +398,16 @@ public class ScreenEncoder implements Device.RotationListener {
                 }
 
             } while (alive);
+
         } catch (Exception e) {
-            e.printStackTrace();
+            Ln.d("catch exception: " + e);
             Ln.e("streamScreen: " + e.getMessage());
         } finally {
             if (mHandlerThread != null) {
                 mHandlerThread.quit();
             }
             device.setRotationListener(null);
-            Ln.d("exit cycle");
+            Ln.d("exit cycle " + alive);
         }
     }
     private static int chooseMaxSizeFallback(Size failedSize) {
