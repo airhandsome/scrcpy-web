@@ -45,7 +45,6 @@ public class ScreenCapture extends SurfaceCapture implements Device.RotationList
         }
 
         try {
-            Ln.i("create display");
             display = createDisplay();
             setDisplaySurface(display, surface, videoRotation, contentRect, unlockedVideoRect, layerStack);
             Ln.d("Display: using SurfaceControl API");
@@ -55,7 +54,7 @@ public class ScreenCapture extends SurfaceCapture implements Device.RotationList
                 Ln.i("create virtual display");
                 virtualDisplay = ServiceManager.getDisplayManager()
                         .createVirtualDisplay("scrcpy", videoRect.width(), videoRect.height(), 0, surface);
-                Ln.d("Display: using DisplayManager API");
+                Ln.d("Display: ScreenCapture using DisplayManager API");
             } catch (Exception displayManagerException) {
                 Ln.e("Could not create display using SurfaceControl", surfaceControlException);
                 Ln.e("Could not create display using DisplayManager", displayManagerException);
@@ -97,8 +96,9 @@ public class ScreenCapture extends SurfaceCapture implements Device.RotationList
     public static IBinder createDisplay() throws Exception {
         // Since Android 12 (preview), secure displays could not be created with shell permissions anymore.
         // On Android 12 preview, SDK_INT is still R (not S), but CODENAME is "S".
-        boolean secure = Build.VERSION.SDK_INT < Build.VERSION_CODES.R || (Build.VERSION.SDK_INT == Build.VERSION_CODES.R && !"S".equals(
-                Build.VERSION.CODENAME));
+        boolean secure = Build.VERSION.SDK_INT < AndroidVersions.API_30_ANDROID_11 || (Build.VERSION.SDK_INT == AndroidVersions.API_30_ANDROID_11
+                && !"S".equals(Build.VERSION.CODENAME));
+        Ln.d("SurfaceControl.createDisplay(\"scrcpy\", secure)");
         return SurfaceControl.createDisplay("scrcpy", secure);
     }
 

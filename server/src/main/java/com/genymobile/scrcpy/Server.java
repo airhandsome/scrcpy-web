@@ -39,6 +39,7 @@ public final class Server {
         }
 
 
+
         AccessibilityNodeInfoDumper dumper = null;
         final Device device = new Device(options);
         boolean tunnelForward = options.isTunnelForward();
@@ -73,7 +74,7 @@ public final class Server {
                     dumper.stop();
                 }
                 // this is expected on close
-                Ln.d("Screen streaming stopped");
+                Ln.d("Server Screen streaming stopped");
                 System.exit(0);
             }
 
@@ -260,12 +261,12 @@ public final class Server {
         if (commandLine.hasOption('m')){
             try{
                 String mode = commandLine.getOptionValue('m');
-                Ln.e("mode:" + mode);
+                Ln.d("mode:" + mode);
 
                 if (mode.equals("image")){
                     ScreenEncoder.videoMode = false;
                 }
-                Ln.e("videoMode:" + ScreenEncoder.videoMode);
+                Ln.d("videoMode:" + ScreenEncoder.videoMode);
             }catch (Exception e){
             }
         }
@@ -287,14 +288,6 @@ public final class Server {
         int x = Integer.parseInt(tokens[2]);
         int y = Integer.parseInt(tokens[3]);
         return new Rect(x, y, x + width, y + height);
-    }
-
-    private static void unlinkSelf() {
-        try {
-            new File(SERVER_PATH).delete();
-        } catch (Exception e) {
-            Ln.e("Could not unlink server", e);
-        }
     }
 
     @SuppressWarnings("checkstyle:MagicNumber")
@@ -327,7 +320,8 @@ public final class Server {
         Ln.i("Options bitrate: " + options.getBitRate() + " (200K-10M)");
         Ln.i("Options projection: " + options.getScale() + " (1080, 720, 480, 360...)");
         Ln.i("Options control only: " + options.getControlOnly() + " (true / false)");
-        Workarounds.apply(false, true);
+        Ln.d("workarounds");
+        Workarounds.apply();
         scrcpy(options);
     }
 }

@@ -1,11 +1,11 @@
 apply plugin: 'com.android.application'
 
 android {
-    compileSdkVersion 34
+    compileSdk 35
     defaultConfig {
         applicationId "com.genymobile.scrcpy"
-        minSdkVersion 19
-        targetSdkVersion 34
+        minSdkVersion 21
+        targetSdkVersion 35
         versionCode 14
         versionName "1.12.1"
         testInstrumentationRunner "android.support.test.runner.AndroidJUnitRunner"
@@ -16,8 +16,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
     }
     buildTypes {
         release {
@@ -34,9 +34,14 @@ android {
         main {
             java.srcDirs 'src/java'
             jniLibs.srcDirs 'libs/libturbojpeg/prebuilt'
-            jniLibs.srcDirs = ['libs']
+            jniLibs.srcDirs = ['libs/libturbojpeg/prebuilt'] // 确保路径正确
         }
     }
+    buildFeatures {
+        buildConfig true
+        aidl true
+    }
+    namespace 'com.genymobile.scrcpy'
 }
 
 dependencies {
@@ -44,5 +49,6 @@ dependencies {
     testImplementation 'junit:junit:4.12'
     implementation 'commons-cli:commons-cli:1.4'
 }
+tasks.register("prepareKotlinBuildScriptModel"){}
 
 apply from: "$project.rootDir/config/android-checkstyle.gradle"
