@@ -39,7 +39,7 @@ public final class DisplayManager {
     public static DisplayInfo parseDisplayInfo(String dumpsysDisplayOutput, int displayId) {
         Pattern regex = Pattern.compile(
                 "^    mOverrideDisplayInfo=DisplayInfo\\{\".*?, displayId " + displayId + ".*?(, FLAG_.*)?, real ([0-9]+) x ([0-9]+).*?, "
-                        + "rotation ([0-9]+).*?, layerStack ([0-9]+)",
+                        + "rotation ([0-9]+).*?, density ([0-9]+).*?, layerStack ([0-9]+)",
                 Pattern.MULTILINE);
         Matcher m = regex.matcher(dumpsysDisplayOutput);
         if (!m.find()) {
@@ -49,9 +49,10 @@ public final class DisplayManager {
         int width = Integer.parseInt(m.group(2));
         int height = Integer.parseInt(m.group(3));
         int rotation = Integer.parseInt(m.group(4));
-        int layerStack = Integer.parseInt(m.group(5));
+        int density = Integer.parseInt(m.group(5));
+        int layerStack = Integer.parseInt(m.group(6));
 
-        return new DisplayInfo(displayId, new Size(width, height), rotation, layerStack, flags);
+        return new DisplayInfo(displayId, new Size(width, height), rotation, layerStack, flags, density, null);
     }
 
     private static DisplayInfo getDisplayInfoFromDumpsysDisplay(int displayId) {
@@ -83,10 +84,18 @@ public final class DisplayManager {
         }
         return flags;
     }
-
+    private Method getDisplayInfoMethod;
+    // getDisplayInfo() may be used from both the Controller thread and the video (main) thread
+    private synchronized Method getGetDisplayInfoMethod() throws NoSuchMethodException {
+        if (getDisplayInfoMethod == null) {
+            getDisplayInfoMethod = manager.getClass().getMethod("getDisplayInfo", int.class);
+        }
+        return getDisplayInfoMethod;
+    }
     public DisplayInfo getDisplayInfo(int displayId) {
         try {
-            Object displayInfo = manager.getClass().getMethod("getDisplayInfo", int.class).invoke(manager, displayId);
+            Method method = getGetDisplayInfoMethod();
+            Object displayInfo = method.invoke(manager, displayId);
             if (displayInfo == null) {
                 // fallback when displayInfo is null
                 return getDisplayInfoFromDumpsysDisplay(displayId);
@@ -98,7 +107,9 @@ public final class DisplayManager {
             int rotation = cls.getDeclaredField("rotation").getInt(displayInfo);
             int layerStack = cls.getDeclaredField("layerStack").getInt(displayInfo);
             int flags = cls.getDeclaredField("flags").getInt(displayInfo);
-            return new DisplayInfo(displayId, new Size(width, height), rotation, layerStack, flags);
+            int dpi = cls.getDeclaredField("logicalDensityDpi").getInt(displayInfo);
+            String uniqueId = (String) cls.getDeclaredField("uniqueId").get(displayInfo);
+            return new DisplayInfo(displayId, new Size(width, height), rotation, layerStack, flags, dpi, uniqueId);
         } catch (ReflectiveOperationException e) {
             throw new AssertionError(e);
         }

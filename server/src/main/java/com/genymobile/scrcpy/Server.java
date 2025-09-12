@@ -1,5 +1,6 @@
 package com.genymobile.scrcpy;
 
+import android.annotation.SuppressLint;
 import android.graphics.Rect;
 import android.media.MediaCodec;
 import android.media.MediaFormat;
@@ -11,8 +12,10 @@ import java.lang.System;
 
 import java.io.ByteArrayOutputStream;
 import java.io.FileDescriptor;
+import java.lang.reflect.Field;
 
 import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 public final class Server {
@@ -303,7 +306,20 @@ public final class Server {
 //            }
         }
     }
-
+    private static void prepareMainLooper() {
+        // Like Looper.prepareMainLooper(), but with quitAllowed set to true
+        Looper.prepare();
+        synchronized (Looper.class) {
+            try {
+                @SuppressLint("DiscouragedPrivateApi")
+                Field field = Looper.class.getDeclaredField("sMainLooper");
+                field.setAccessible(true);
+                field.set(null, Looper.myLooper());
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError(e);
+            }
+        }
+    }
     public static void main(String... args) throws Exception {
         Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
             @Override
@@ -312,7 +328,7 @@ public final class Server {
                 suggestFix(e);
             }
         });
-
+        prepareMainLooper();
 //        unlinkSelf();
 //        Options options = createOptions(args);
         final Options options = customOptions(args);
@@ -321,7 +337,6 @@ public final class Server {
         Ln.i("Options projection: " + options.getScale() + " (1080, 720, 480, 360...)");
         Ln.i("Options control only: " + options.getControlOnly() + " (true / false)");
         Ln.d("workarounds");
-        Workarounds.apply();
         scrcpy(options);
     }
 }
